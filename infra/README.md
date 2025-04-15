@@ -45,20 +45,22 @@ Detailed setup instructions and configurations are available in the `infra/docs/
 - `solana_setup.md`: Steps for manual Solana node setup.
 - `security_setup.md`: Steps for manual security tools setup (e.g., Suricata, Vault, Wazuh).
 - `management_setup.md`: Steps for manual management tools setup (e.g., Rasa, ArgoCD).
+- `cloudflare_setup.md`: Steps for manual Cloudflare configuration (DNS, WAF, CDN, Rate Limiting).
 
 ## Getting Started
 
 1. **Extract OCI Credentials**:
-
    - Follow `infra/docs/oci_credentials_setup.md` to obtain the necessary OCI credentials (Tenancy OCID, User OCID, Fingerprint, etc.) for each account.
 
-2. **Set Up Ansible Tower**:
+2. **Set Up Cloudflare**:
+   - Follow `infra/docs/cloudflare_setup.md` to configure Cloudflare for DNS, CDN, WAF, and Rate Limiting.
+   - Ensure DNS records point to Frontend servers, and WAF rules are active before proceeding.
 
+3. **Set Up Ansible Tower**:
    - Follow `infra/docs/ansible_setup.md` to install and configure Ansible Tower on the `EU-MGMT-A1-01` VM.
    - Configure the inventory with all VMs (refer to `vm_inventory.md`).
 
-3. **Execute Playbooks**:
-
+4. **Execute Playbooks**:
    - Run the playbooks in the following order to set up the infrastructure:
      1. `setup_network.yml` (sets up the main VCN).
      2. `setup_local_vcn.yml` (configures local VCNs and peering).
@@ -76,13 +78,12 @@ Detailed setup instructions and configurations are available in the `infra/docs/
      14. `failover.yml` and `restore.yml` (for failover and recovery, as needed).
      15. `check_compliance.yml` (verifies and corrects configurations for compliance).
 
-4. **Monitor Execution**:
-
+5. **Monitor Execution**:
    - Follow `infra/docs/ansible_tower_monitoring.md` to monitor playbook execution in Ansible Tower and verify success.
    - Use Grafana on EU-MON-01 to monitor infrastructure metrics (e.g., latency, cache hit ratio, transaction confirmation time).
+   - Check Cloudflare metrics in Grafana ("Cloudflare Performance" dashboard) to ensure caching and WAF are functioning correctly.
 
-5. **Test the Infrastructure**:
-
+6. **Test the Infrastructure**:
    - Test load balancing: `curl http://eu-fe.blitzhub.sol/health`.
    - Test object storage: `oci os object get --bucket-name AssetsBlitzHubEU --name app.js`.
    - Test database connectivity: `sqlplus blitzhub_app@TokensDBEUFE01_high`.
@@ -91,12 +92,14 @@ Detailed setup instructions and configurations are available in the `infra/docs/
    - Test backend API: `curl http://eu-be.blitzhub.sol:3000/api/tokens`.
    - Test monitoring: Access Grafana at `http://eu-mon.blitzhub.sol:3000` and verify dashboards.
    - Test security alerts: Check Wazuh Telegram alerts for suspicious activity.
+   - Test Cloudflare caching: `curl -I https://blitzhub.sol/static/app.js` (expect `CF-Cache-Status: HIT`).
+   - Test Cloudflare WAF: `curl "https://blitzhub.sol/api/buy?data=<script>alert(1)</script>"` (expect HTTP 403).
 
 ## Next Steps
 
-- **Expand Monitoring**: Add more custom metrics to Prometheus (e.g., user activity, token transaction volume) and create additional Grafana dashboards.
-- **Enhance Security**: Implement additional Suricata rules for Solana-specific threats and expand Trivy scans to containers (if used).
-- **Optimize Performance**: Fine-tune Varnish caching rules and Envoy load balancing based on traffic patterns.
-- **Automate Failover Testing**: Schedule regular failover tests using `failover.yml` and `restore.yml` to ensure reliability.
+- **Expand Monitoring**: Add more custom metrics to Prometheus (e.g., user activity, token transaction volume) and create additional Grafana dashboards, including deeper Cloudflare analytics (e.g., per-region latency).
+- **Enhance Security**: Implement additional Suricata rules for Solana-specific threats, expand Trivy scans to containers, and review Cloudflare WAF logs for false positives.
+- **Optimize Performance**: Fine-tune Varnish caching rules, Envoy load balancing, and Cloudflare Argo routing based on traffic patterns.
+- **Automate Failover Testing**: Schedule regular failover tests using `failover.yml` and `restore.yml` to ensure reliability, and validate Cloudflare's failover behavior.
 
 For detailed instructions, refer to the documentation in `infra/docs/`.
