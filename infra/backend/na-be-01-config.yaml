@@ -1,0 +1,13 @@
+backend:
+  name: NA-BE-01
+  mode: active
+  host: 0.0.0.0
+  port: 3000
+  workers: 4
+  max_transactions_per_second: 100  # 100 normalmente, ajustado para 20 em picos pelo backend
+  rabbitmq:
+    url: amqp://blitzhub:BlitzHub2025!@localhost:5672
+    queue_prefix: trades  # Para filas do tipo trades:{tokenAddress}
+  redis:
+    url: redis://localhost:6379
+    maxmemory: 4GB
