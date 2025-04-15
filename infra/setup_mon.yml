@@ -1,0 +1,230 @@
+- name: Configurar Servidores de Monitoramento (MON)
+  hosts: eu-mon-01
+  become: yes
+  tasks:
+    - name: Instalar K3s (1.30.0)
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.30.0+k3s1 sh -s - --disable traefik
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Instalar Prometheus (2.54.0)
+      shell: |
+        wget https://github.com/prometheus/prometheus/releases/download/v2.54.0/prometheus-2.54.0.linux-arm64.tar.gz
+        tar xvf prometheus-2.54.0.linux-arm64.tar.gz
+        mv prometheus-2.54.0.linux-arm64/prometheus /usr/local/bin/
+        mv prometheus-2.54.0.linux-arm64/promtool /usr/local/bin/
+      args:
+        creates: /usr/local/bin/prometheus
+
+    - name: Criar diretório para configurações do Prometheus
+      file:
+        path: /etc/prometheus
+        state: directory
+        mode: '0755'
+
+    - name: Configurar Prometheus para monitorar SLOs e métricas específicas
+      copy:
+        content: |
+          global:
+            scrape_interval: 15s
+          scrape_configs:
+            - job_name: 'vms'
+              static_configs:
+                - targets: ['<IP_EU-FE-A1-01>:9100', '<IP_EU-BE-A1-01>:9100', '<IP_EU-MON-A1-01>:9100', '<IP_EU-SEC-A1-01>:9100', '<IP_EU-SOL-A1-01>:9100', '<IP_EU-MGMT-A1-01>:9100']
+                  labels:
+                    group: 'blitzhub'
+            - job_name: 'fastify'
+              metrics_path: '/metrics'
+              static_configs:
+                - targets: ['<IP_EU-FE-A1-01>:3000', '<IP_EU-BE-A1-01>:3000']
+            - job_name: 'solana'
+              metrics_path: '/rpc'
+              static_configs:
+                - targets: ['<IP_EU-SOL-A1-01>:8899']
+            - job_name: 'redis'
+              metrics_path: '/metrics'
+              static_configs:
+                - targets: ['<IP_EU-FE-A1-01>:6379', '<IP_EU-BE-A1-01>:6379']
+            - job_name: 'rabbitmq'
+              metrics_path: '/metrics'
+              static_configs:
+                - targets: ['<IP_EU-BE-A1-01>:15672']
+          rule_files:
+            - /etc/prometheus/rules.yml
+        dest: /etc/prometheus/prometheus.yml
+
+    - name: Configurar regras de alerta no Prometheus
+      copy:
+        content: |
+          groups:
+          - name: blitzhub_alerts
+            rules:
+            - alert: HighLatency
+              expr: http_request_duration_seconds{job="fastify"} > 0.05
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Alta latência detectada em {{ $labels.instance }}"
+                description: "Latência de {{ $value }} segundos excede o limite de 0,05s por 5 minutos."
+            - alert: LowCacheHitRatio
+              expr: cache_hit_ratio{job="varnish"} < 0.4
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Taxa de cache baixa em {{ $labels.instance }}"
+                description: "Taxa de acerto de cache caiu para {{ $value }} (limite: 0,4)."
+            - alert: HighTransactionConfirmationTime
+              expr: transaction_confirmation_time{priority="high"} > 0.1
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Tempo de confirmação alto para prioridade alta em {{ $labels.instance }}"
+                description: "Tempo de confirmação de {{ $value }} segundos excede o limite de 0,1s."
+            - alert: HighPlatformFees
+              expr: platform_fees_collected_total > 1000
+              for: 1h
+              labels:
+                severity: info
+              annotations:
+                summary: "Taxas da plataforma excedem 1000 SOL"
+                description: "Total de taxas coletadas: {{ $value }} SOL."
+            - alert: HighRefunds
+              expr: fees_refunded_total > 100
+              for: 1h
+              labels:
+                severity: info
+              annotations:
+                summary: "Reembolsos altos detectados"
+                description: "Total reembolsado: {{ $value }} SOL."
+        dest: /etc/prometheus/rules.yml
+
+    - name: Criar serviço Systemd para Prometheus
+      copy:
+        content: |
+          [Unit]
+          Description=Prometheus Monitoring
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/prometheus.service
+      notify: Reiniciar Prometheus
+
+    - name: Instalar Grafana (11.2.0)
+      shell: |
+        wget -q -O - https://packages.grafana.com/gpg.key | apt-key add -
+        echo "deb https://packages.grafana.com/oss/deb stable main" > /etc/apt/sources.list.d/grafana.list
+        apt-get update
+        apt-get install -y grafana=11.2.0
+      args:
+        creates: /usr/sbin/grafana-server
+
+    - name: Configurar Grafana
+      copy:
+        content: |
+          [auth]
+          oauth_auto_login = true
+          [auth.generic_oauth]
+          enabled = true
+          client_id = <CLOUDFLARE_CLIENT_ID>
+          client_secret = <CLOUDFLARE_CLIENT_SECRET>
+          auth_url = https://<CLOUDFLARE_DOMAIN>/oauth/authorize
+          token_url = https://<CLOUDFLARE_DOMAIN>/oauth/token
+          api_url = https://<CLOUDFLARE_DOMAIN>/userinfo
+        dest: /etc/grafana/grafana.ini
+      notify: Reiniciar Grafana
+
+    - name: Instalar Loki (3.1.0)
+      shell: |
+        wget https://github.com/grafana/loki/releases/download/v3.1.0/loki-linux-arm64.zip
+        unzip loki-linux-arm64.zip
+        mv loki-linux-arm64 /usr/local/bin/loki
+      args:
+        creates: /usr/local/bin/loki
+
+    - name: Configurar Loki
+      copy:
+        content: |
+          auth_enabled: false
+          server:
+            http_listen_port: 3100
+          ingester:
+            lifecycler:
+              ring:
+                replication_factor: 1
+          storage_config:
+            filesystem:
+              directory: /var/lib/loki
+          compactor:
+            retention_enabled: true
+            delete_request_enabled: true
+            retention_period: 7d
+        dest: /etc/loki/loki-config.yaml
+      notify: Reiniciar Loki
+
+    - name: Instalar Jaeger (1.60.0)
+      shell: |
+        wget https://github.com/jaegertracing/jaeger/releases/download/v1.60.0/jaeger-1.60.0-linux-arm64.tar.gz
+        tar xvf jaeger-1.60.0-linux-arm64.tar.gz
+        mv jaeger-1.60.0-linux-arm64/jaeger-all-in-one /usr/local/bin/
+      args:
+        creates: /usr/local/bin/jaeger-all-in-one
+
+    - name: Configurar firewall (UFW) para MON
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - 9090  # Prometheus
+        - 3000  # Grafana
+        - 3100  # Loki
+        - 14268 # Jaeger
+
+    - name: Iniciar serviços
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      loop:
+        - k3s
+        - prometheus
+        - grafana-server
+
+    - name: Iniciar Jaeger
+      shell: |
+        nohup /usr/local/bin/jaeger-all-in-one &
+      args:
+        executable: /bin/bash
+
+    - name: Iniciar Loki
+      shell: |
+        nohup /usr/local/bin/loki -config.file=/etc/loki/loki-config.yaml &
+      args:
+        executable: /bin/bash
+
+  handlers:
+    - name: Reiniciar Prometheus
+      systemd:
+        name: prometheus
+        state: restarted
+
+    - name: Reiniciar Grafana
+      systemd:
+        name: grafana-server
+        state: restarted
+
+    - name: Reiniciar Loki
+      shell: |
+        pkill loki || true
+        nohup /usr/local/bin/loki -config.file=/etc/loki/loki-config.yaml &
+      args:
+        executable: /bin/bash
