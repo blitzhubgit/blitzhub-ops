@@ -1,0 +1,143 @@
+- name: Configurar Servidores de Segurança (SEC)
+  hosts: eu-sec-01
+  become: yes
+  tasks:
+    - name: Instalar Suricata (7.0.0)
+      shell: |
+        apt-get install -y suricata
+        suricata-update
+      args:
+        creates: /usr/bin/suricata
+
+    - name: Configurar Suricata
+      copy:
+        content: |
+          %YAML 1.1
+          ---
+          default-rule-path: /var/lib/suricata/rules
+          rule-files:
+            - suricata.rules
+            - emerging-threats.rules
+          af-packet:
+            - interface: eth0
+              threads: 1
+              cluster-id: 99
+              cluster-type: cluster_flow
+        dest: /etc/suricata/suricata.yaml
+      notify: Reiniciar Suricata
+
+    - name: Instalar CrowdSec (1.5.0)
+      shell: |
+        curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | bash
+        apt-get install -y crowdsec=1.5.0*
+      args:
+        creates: /usr/bin/crowdsec
+
+    - name: Configurar CrowdSec
+      shell: |
+        cscli decisions add --ip 0.0.0.0/0 --type ban --duration 1h
+      args:
+        creates: /var/lib/crowdsec/.configured
+
+    - name: Instalar Vault (1.17.0)
+      shell: |
+        wget https://releases.hashicorp.com/vault/1.17.0/vault_1.17.0_linux_arm64.zip
+        unzip vault_1.17.0_linux_arm64.zip
+        mv vault /usr/local/bin/
+      args:
+        creates: /usr/local/bin/vault
+
+    - name: Configurar o Vault
+      copy:
+        content: |
+          storage "file" {
+            path = "/var/lib/vault"
+          }
+          listener "tcp" {
+            address     = "0.0.0.0:8200"
+            tls_disable = 1
+          }
+          api_addr = "http://{{ ansible_default_ipv4.address }}:8200"
+          ui = true
+        dest: /etc/vault.d/vault.hcl
+      notify: Reiniciar Vault
+
+    - name: Criar serviço Systemd para o Vault
+      copy:
+        content: |
+          [Unit]
+          Description=HashiCorp Vault
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/local/bin/vault server -config=/etc/vault.d/vault.hcl
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/vault.service
+      notify: Reiniciar Vault
+
+    - name: Instalar Wazuh (4.9.0)
+      shell: |
+        curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | apt-key add -
+        echo "deb https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
+        apt-get update
+        apt-get install -y wazuh-agent=4.9.0*
+      args:
+        creates: /usr/share/wazuh-agent
+
+    - name: Configurar Wazuh para alertas no Telegram
+      copy:
+        content: |
+          <ossec_config>
+            <integration>
+              <name>telegram</name>
+              <hook_url>https://api.telegram.org/bot<TOKEN>/sendMessage</hook_url>
+              <chat_id><CHAT_ID></chat_id>
+              <level>10</level>
+            </integration>
+          </ossec_config>
+        dest: /var/ossec/etc/ossec.conf
+      notify: Reiniciar Wazuh
+
+    - name: Instalar Trivy (0.55.0)
+      shell: |
+        wget https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-ARM64.tar.gz
+        tar xvf trivy_0.55.0_Linux-ARM64.tar.gz
+        mv trivy /usr/local/bin/
+      args:
+        creates: /usr/local/bin/trivy
+
+    - name: Configurar firewall (UFW) para SEC
+      ufw:
+        rule: allow
+        port: 8200  # Vault
+
+    - name: Iniciar serviços
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      loop:
+        - suricata
+        - crowdsec
+        - vault
+        - wazuh-agent
+
+  handlers:
+    - name: Reiniciar Suricata
+      systemd:
+        name: suricata
+        state: restarted
+
+    - name: Reiniciar Vault
+      systemd:
+        name: vault
+        state: restarted
+
+    - name: Reiniciar Wazuh
+      systemd:
+        name: wazuh-agent
+        state: restarted
