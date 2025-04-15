@@ -1,1 +1,37 @@
 
+- name: Restaurar Configurações Após Failover
+  hosts: localhost
+  connection: local
+  vars:
+    oci_config_file: "~/.oci/config"
+    profile: "EU-FE-01"
+    compartment_id: "ocid1.compartment.oc1..example"
+    load_balancer_id: "ocid1.loadbalancer.oc1..example"
+    primary_instance_id: "ocid1.instance.oc1..primary"
+  tasks:
+    - name: Verificar saúde da instância primária
+      oci_compute_instance:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ profile }}"
+        instance_id: "{{ primary_instance_id }}"
+        state: present
+      register: instance_status
+      failed_when: instance_status.instance.lifecycle_state != "RUNNING"
+      ignore_errors: yes
+
+    - name: Restaurar Backend Set para instância primária
+      oci_network_load_balancer_backend_set:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ profile }}"
+        load_balancer_id: "{{ load_balancer_id }}"
+        name: "http-backend-set"
+        policy: "ROUND_ROBIN"
+        health_checker:
+          protocol: "HTTP"
+          port: 80
+          url_path: "/health"
+        backends:
+          - target_id: "{{ primary_instance_id }}"
+            port: 80
+        state: present
+      when: instance_status.rc == 0
