@@ -1,0 +1,157 @@
+# BlitzHub Infrastructure Changes and Operations Notes
+
+## Problem Addressed
+
+During the initial prototyping phase of BlitzHub, the platform encountered significant challenges due to undercapacity in handling load, inadequate data structures, and missing indicators for token trading operations. The key issues were:
+
+- **Overload on a Single Backend**: The original active-passive setup routed all traffic to EU-BE-01, with NA-BE-01 as a passive failover, causing bottlenecks during high transaction volumes (e.g., token launches) with response times exceeding 500ms (p95).
+- **Lack of Scalability for Traffic Spikes**: The platform struggled to handle sudden spikes (e.g., 16,000 WebSocket connections during peak events), leading to dropped connections and failed transactions.
+- **Dependency on Solana for Data**: Frequent Solana node queries for token metrics (e.g., holders, liquidity) resulted in delays and high costs, with RPC calls taking up to 2s due to rate limits.
+- **Missing Indicators for TradingView Integration**: Lack of precomputed price history and transaction data prevented integration with TradingView for real-time charting, a critical user feature.
+- **Inadequate Rate Limiting**: Without dynamic rate limiting, the platform was vulnerable to abuse (e.g., DDoS attacks) and couldn't throttle traffic during peaks, causing system crashes.
+
+These issues necessitated updates to the infrastructure, backend, frontend, and documentation to improve scalability, reduce latency, and enable essential features like TradingView integration.
+
+## Changes Implemented
+
+The following files were created or modified to address the issues:
+
+### 1. Infrastructure Configurations (infra/)
+
+- **infra/load-balancer/cloudflare-config.json**:
+  - **Original**: Configured Cloudflare in active-passive mode, routing all traffic to EU-BE-01 with NA-BE-01 as failover.
+  - **Change**: Updated to active-active mode with dynamic region-based distribution (Europe → EU-BE-01, North America → NA-BE-01, fallback 50/50) and reduced health check interval to 10s for faster failover detection.
+  - **Purpose**: Enables load balancing across regions, reducing latency and supporting up to 16,000 WebSocket connections (8,000 per backend).
+
+- **infra/backend/eu-be-01-config.yaml**:
+  - **Original**: Configured EU-BE-01 as the active backend in active-passive mode with basic RabbitMQ and Redis settings.
+  - **Change**: Confirmed active mode for active-active setup, added a dynamic transaction limit (100 normally, 20 in peaks), and specified trade-specific RabbitMQ queues (`trades:{tokenAddress}`).
+  - **Purpose**: Configures EU-BE-01 to handle transactions, process trades, and integrate with message queues and caching.
+
+- **infra/backend/na-be-01-config.yaml**:
+  - **Original**: Configured NA-BE-01 as the passive backend in active-passive mode.
+  - **Change**: Updated to active mode for active-active setup, added a dynamic transaction limit, and specified trade-specific RabbitMQ queues.
+  - **Purpose**: Configures NA-BE-01 to operate alongside EU-BE-01, sharing the transaction load.
+
+- **infra/database/tokensdbeufe01-schema.sql**:
+  - **Original**: Contained a basic `Tokens` table with minimal fields.
+  - **Change**: Added tables `UserBalances`, `Transactions`, `PriceHistory`, and `Users` to support backend calculations and TradingView integration. Added fields like `market_cap`, `volume_24h`, `liquidity`, and `holders` to `Tokens`, plus indices for performance.
+  - **Purpose**: Stores token metrics, user data, transaction history, and price data, reducing Solana dependency and enabling charting features.
+
+- **infra/monitoring/prometheus-config.yml**:
+  - **Original**: Basic Prometheus configuration scraping only EU-BE-01 metrics.
+  - **Change**: Added NA-BE-01 as a target, included jobs for database, RabbitMQ, and Solana metrics, and added alerting rules for high transaction failures, low cache hit ratio, and high latency.
+  - **Purpose**: Monitors backend health, database performance, message queue status, and blockchain interactions, with alerts for critical issues.
+
+### 2. Backend Code (src/)
+
+- **src/routes/trade.js**:
+  - **Original**: Basic endpoint to enqueue trades in RabbitMQ without rate limiting.
+  - **Change**: Added dynamic rate limiting (100 transactions/s normally, 20 in peaks) with silent rejection (HTTP 429).
+  - **Purpose**: Handles trade requests, enforces transaction limits, and enqueues trades for processing, ensuring stability during peaks.
+
+- **src/trade/executeTrade.js**:
+  - **Original**: Processed trades with basic supply updates, no bonding curve or indicator calculations.
+  - **Change**: Added bonding curve calculations, updated related tables (`Transactions`, `UserBalances`, `PriceHistory`), and computed indicators like market cap and liquidity.
+  - **Purpose**: Executes trades, calculates token prices using a bonding curve, updates database tables, and supports TradingView integration.
+
+- **src/db/queries.js**:
+  - **Original**: Basic functions to query and update the `Tokens` table.
+  - **Change**: Added functions to interact with `UserBalances`, `Transactions`, and `PriceHistory` tables for trade execution and data retrieval.
+  - **Purpose**: Provides database interaction utilities for the backend, supporting trade processing and data updates.
+
+- **src/websocket/updates.js**:
+  - **Original**: Basic WebSocket updates broadcasting only price changes.
+  - **Change**: Added broadcasting of all token metrics (market cap, volume 24h, liquidity, holders) to connected clients.
+  - **Purpose**: Provides real-time updates to frontend clients via WebSocket, ensuring users see up-to-date token metrics.
+
+### 3. Frontend Code (frontend/)
+
+- **frontend/src/components/TokenChart.js**:
+  - **Original**: Placeholder component for token charts.
+  - **Change**: Integrated with the free version of TradingView to display candlestick charts using data from the `PriceHistory` table.
+  - **Purpose**: Renders token price charts in the frontend, enhancing user experience with real-time market data visualization.
+
+- **frontend/src/api/api.js**:
+  - **Original**: Basic function to fetch token list.
+  - **Change**: Added functions to fetch price history and submit trades, enabling TradingView integration and trade execution from the frontend.
+  - **Purpose**: Provides API interaction utilities for the frontend to fetch token data, price history, and submit trades.
+
+### 4. Documentation (docs/)
+
+- **docs/architecture.md**:
+  - **Original**: Described the architecture in active-passive mode.
+  - **Change**: Updated to reflect active-active mode, dynamic distribution, and added a section on bonding curve calculations.
+  - **Purpose**: Documents the system architecture, providing an overview of components and their interactions.
+
+- **docs/database.md**:
+  - **Original**: Documented only the `Tokens` table.
+  - **Change**: Added documentation for new tables (`UserBalances`, `Transactions`, `PriceHistory`, `Users`) and their indices.
+  - **Purpose**: Documents the database schema, detailing tables, columns, and indices for reference.
+
+- **docs/api.md**:
+  - **Original**: Documented only the `/api/tokens/list` endpoint.
+  - **Change**: Added new endpoints (`/api/tokens/{tokenAddress}/price-history`, `/api/trade`), WebSocket documentation, and updated `/api/tokens/list` response to include new metrics.
+  - **Purpose**: Documents the API and WebSocket endpoints for developers and frontend integration.
+
+- **docs/monitoring.md**:
+  - **Original**: Minimal monitoring documentation with basic backend metrics.
+  - **Change**: Added detailed metrics for backend, database, RabbitMQ, and Solana, along with monitoring tools (Prometheus, Grafana) and alerting rules.
+  - **Purpose**: Documents the monitoring setup, metrics, and alerting strategy for operational visibility.
+
+- **docs/tradingview.md**:
+  - **Original**: Did not exist.
+  - **Change**: Created to document the TradingView integration process, data requirements, and limitations of the free plan.
+  - **Purpose**: Provides guidance on how TradingView is integrated, including data sources and constraints.
+
+## When to Execute the Scripts
+
+The `.yml` scripts in this directory are designed to set up and configure the infrastructure components. Here's when to execute them:
+
+- **After Initial VM Provisioning**:
+  - Execute scripts to configure backend servers (EU-BE-01, NA-BE-01), database instances, and monitoring setups.
+  - Example: Apply `infra/backend/eu-be-01-config.yaml` and `infra/backend/na-be-01-config.yaml` to set up backend services.
+  - Example: Apply `infra/monitoring/prometheus-config.yml` to configure Prometheus monitoring.
+
+- **After Infrastructure Configuration**:
+  - Execute scripts to apply load balancing and monitoring configurations once VMs are provisioned and services are running.
+  - Example: After setting up Cloudflare DNS, apply `infra/load-balancer/cloudflare-config.json` to enable Geo-Steering and rate limiting.
+
+- **During Maintenance or Scaling**:
+  - Re-execute scripts when adding new regions (e.g., AS-BE-01), adjusting transaction limits, or updating the database schema.
+  - Example: Update and apply `infra/monitoring/prometheus-config.yml` to add new monitoring targets or alerts.
+
+- **Post-Deployment Validation**:
+  - Use scripts to validate configurations and test failover scenarios after deployment.
+  - Example: Verify Cloudflare load balancing using `infra/load-balancer/cloudflare-config.json` settings.
+
+## Current Limitations
+
+Despite the improvements, the platform still has the following limitations:
+
+- **Scalability Beyond Two Regions**: The active-active setup supports only EU-BE-01 and NA-BE-01. Adding more regions requires manual updates to Cloudflare Geo-Steering rules and backend configurations, potentially causing downtime.
+- **Dynamic Rate Limiting Granularity**: Transaction limits (100 normally, 20 in peaks) are applied uniformly across all users, lacking per-user rate limiting, which could allow a single user to dominate the quota.
+- **Database Query Performance**: The Autonomous Database is limited to 1,000 QPS per instance. During extreme peaks (e.g., 5,000 QPS), queries may queue, increasing latency.
+- **TradingView Integration Constraints**: The `PriceHistory` table supports basic candlestick data, but the free TradingView plan limits advanced features (e.g., custom indicators), potentially requiring a paid plan.
+- **Solana Dependency for Real-Time Updates**: While precomputed metrics reduce Solana RPC calls, real-time transaction validation still relies on Solana, introducing a dependency that could fail if Solana nodes are down.
+
+## Summary of Files and Execution
+
+| **File Path** | **Purpose** | **When to Execute** |
+| --- | --- | --- |
+| `infra/load-balancer/cloudflare-config.json` | Configures Cloudflare for active-active load balancing and Geo-Steering. | After DNS setup and VM provisioning; during scaling or maintenance. |
+| `infra/backend/eu-be-01-config.yaml` | Configures EU-BE-01 backend with active mode, transaction limits, and queue settings. | After VM provisioning; during maintenance (e.g., adjusting limits). |
+| `infra/backend/na-be-01-config.yaml` | Configures NA-BE-01 backend with active mode, transaction limits, and queue settings. | After VM provisioning; during maintenance (e.g., adjusting limits). |
+| `infra/database/tokensdbeufe01-schema.sql` | Defines the database schema with tables for metrics, transactions, and TradingView data. | After database creation; during schema updates. |
+| `infra/monitoring/prometheus-config.yml` | Configures Prometheus to monitor backends, database, RabbitMQ, and Solana, with alerting rules. | After VM provisioning; during monitoring updates or scaling. |
+| `src/routes/trade.js` | Handles trade requests, enforces dynamic rate limits, and enqueues trades in RabbitMQ. | Loaded at runtime by the backend server; updated during feature enhancements or bug fixes. |
+| `src/trade/executeTrade.js` | Executes trades, calculates prices via bonding curve, and updates database tables for TradingView. | Loaded at runtime by the backend server; updated during feature enhancements or bug fixes. |
+| `src/db/queries.js` | Provides database interaction utilities for trade processing and data retrieval. | Loaded at runtime by the backend server; updated during feature enhancements or bug fixes. |
+| `src/websocket/updates.js` | Broadcasts real-time token metrics (price, market cap, etc.) to frontend clients via WebSocket. | Loaded at runtime by the backend server; updated during feature enhancements or bug fixes. |
+| `frontend/src/components/TokenChart.js` | Renders token price charts in the frontend using TradingView integration. | Loaded at runtime by the frontend app; updated during UI enhancements or bug fixes. |
+| `frontend/src/api/api.js` | Provides API interaction utilities for the frontend to fetch token data and submit trades. | Loaded at runtime by the frontend app; updated during API changes or bug fixes. |
+| `docs/architecture.md` | Documents the system architecture, including active-active mode and bonding curve calculations. | Updated during architecture changes or documentation reviews. |
+| `docs/database.md` | Documents the database schema, detailing tables, columns, and indices. | Updated during schema changes or documentation reviews. |
+| `docs/api.md` | Documents API and WebSocket endpoints for developers and frontend integration. | Updated during API changes or documentation reviews. |
+| `docs/monitoring.md` | Documents the monitoring setup, metrics, and alerting strategy. | Updated during monitoring changes or documentation reviews. |
+| `docs/tradingview.md` | Documents the TradingView integration process, data requirements, and limitations. | Updated during integration changes or documentation reviews. |
