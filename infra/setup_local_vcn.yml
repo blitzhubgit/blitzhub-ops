@@ -1,1 +1,72 @@
+- name: Configurar VCNs Locais e Remote VCN Peering
+  hosts: localhost
+  connection: local
+  vars:
+    oci_config_file: "~/.oci/config"
+    accounts:
+      - { profile: "NA-FE-01", region: "us-ashburn-1", cidr: "10.1.0.0/16", subnet_cidr: "10.1.1.0/24" }
+      - { profile: "SA-FE-01", region: "sa-saopaulo-1", cidr: "10.2.0.0/16", subnet_cidr: "10.2.1.0/24" }
+      # Adicione outras contas conforme necessário
+    main_vcn_id: "ocid1.vcn.oc1..example"
+    compartment_id: "ocid1.compartment.oc1..example"
+  tasks:
+    - name: Criar VCN local para cada conta
+      oci_network_vcn:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        display_name: "BlitzHubVCN-{{ item.profile }}"
+        cidr_block: "{{ item.cidr }}"
+        state: present
+      loop: "{{ accounts }}"
+      register: local_vcn_result
 
+    - name: Criar Subnet para cada VCN local
+      oci_network_subnet:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        vcn_id: "{{ local_vcn_result.results[loop_index].vcn.id }}"
+        display_name: "BlitzHubSubnet-{{ item.profile }}"
+        cidr_block: "{{ item.subnet_cidr }}"
+        state: present
+      loop: "{{ accounts }}"
+      loop_control:
+        loop_var: item
+        index_var: loop_index
+
+    - name: Configurar Remote VCN Peering
+      oci_network_drg:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        display_name: "BlitzHubDRG-{{ item.profile }}"
+        state: present
+      loop: "{{ accounts }}"
+      register: drg_result
+
+    - name: Conectar DRG à VCN local
+      oci_network_drg_attachment:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        drg_id: "{{ drg_result.results[loop_index].drg.id }}"
+        vcn_id: "{{ local_vcn_result.results[loop_index].vcn.id }}"
+        state: present
+      loop: "{{ accounts }}"
+      loop_control:
+        loop_var: item
+        index_var: loop_index
+
+    - name: Configurar RPC para conectar à VCN principal
+      oci_network_remote_peering_connection:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        drg_id: "{{ drg_result.results[loop_index].drg.id }}"
+        peer_id: "{{ main_vcn_id }}"
+        state: present
+      loop: "{{ accounts }}"
+      loop_control:
+        loop_var: item
+        index_var: loop_index
