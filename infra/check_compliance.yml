@@ -1,0 +1,135 @@
+- name: Verificar e Corrigir Configurações (Compliance)
+  hosts: all
+  become: yes
+  vars:
+    region: "{{ inventory_hostname.split('-')[0].lower() }}"
+  tasks:
+    # Verificações para Frontend (FE)
+    - name: Verificar Node.js (18.20.0) nos servidores FE
+      ansible.builtin.command: node --version
+      register: node_check_fe
+      failed_when: node_check_fe.stdout != "v18.20.0"
+      when: "'fe' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Corrigir Node.js se necessário nos servidores FE
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs=18.20.0*
+      when: "'fe' in inventory_hostname and node_check_fe.rc != 0"
+
+    - name: Verificar portas abertas (FE)
+      ansible.builtin.command: ss -tuln | grep :3000
+      register: port_check_fe
+      failed_when: port_check_fe.rc != 0
+      when: "'fe' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Corrigir portas FE se necessário
+      ufw:
+        rule: allow
+        port: 3000
+      when: "'fe' in inventory_hostname and port_check_fe.rc != 0"
+
+    - name: Verificar Redis maxmemory (FE)
+      ansible.builtin.command: redis-cli CONFIG GET maxmemory
+      register: redis_maxmemory_fe
+      failed_when: redis_maxmemory_fe.stdout_lines[1] != "4294967296"  # 4GB
+      when: "'fe' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Corrigir Redis maxmemory se necessário (FE)
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^maxmemory '
+        line: 'maxmemory 4GB'
+      when: "'fe' in inventory_hostname and redis_maxmemory_fe.rc != 0"
+      notify: Reiniciar Redis
+
+    # Verificações para Backend (BE)
+    - name: Verificar Node.js (18.20.0) nos servidores BE
+      ansible.builtin.command: node --version
+      register: node_check_be
+      failed_when: node_check_be.stdout != "v18.20.0"
+      when: "'be' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Corrigir Node.js se necessário nos servidores BE
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs=18.20.0*
+      when: "'be' in inventory_hostname and node_check_be.rc != 0"
+
+    - name: Verificar portas abertas (BE)
+      ansible.builtin.command: ss -tuln | grep :6379
+      register: port_check_be
+      failed_when: port_check_be.rc != 0
+      when: "'be' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Corrigir portas BE se necessário
+      ufw:
+        rule: allow
+        port: 6379
+      when: "'be' in inventory_hostname and port_check_be.rc != 0"
+
+    - name: Verificar RabbitMQ filas (BE)
+      ansible.builtin.command: rabbitmqctl list_queues | grep queue_{{ region }}_high
+      register: rabbitmq_check
+      failed_when: rabbitmq_check.rc != 0
+      when: "'be' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Recriar filas RabbitMQ se necessário (BE)
+      shell: |
+        rabbitmqctl eval 'rabbitmq_queues:grow(<<"/">>, <<"queue_{{ region }}_high">>, 10, [{<<"x-max-priority">>, 10}, {<<"x-message-ttl">>, 10000}]).'
+      when: "'be' in inventory_hostname and rabbitmq_check.rc != 0"
+
+    # Verificações para Solana (SOL)
+    - name: Verificar Solana CLI (1.18.0)
+      ansible.builtin.command: solana --version
+      register: solana_check
+      failed_when: "'1.18.0' not in solana_check.stdout"
+      when: "'sol' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Reinstalar Solana CLI se necessário
+      shell: |
+        sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"
+      when: "'sol' in inventory_hostname and solana_check.rc != 0"
+
+    # Verificações para Segurança (SEC)
+    - name: Verificar Vault (1.17.0)
+      ansible.builtin.command: vault version
+      register: vault_check
+      failed_when: "'1.17.0' not in vault_check.stdout"
+      when: "'sec' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Reinstalar Vault se necessário
+      shell: |
+        wget https://releases.hashicorp.com/vault/1.17.0/vault_1.17.0_linux_arm64.zip
+        unzip vault_1.17.0_linux_arm64.zip
+        mv vault /usr/local/bin/
+      when: "'sec' in inventory_hostname and vault_check.rc != 0"
+
+    # Verificações para Monitoramento (MON)
+    - name: Verificar Prometheus (2.54.0)
+      ansible.builtin.command: prometheus --version
+      register: prometheus_check
+      failed_when: "'2.54.0' not in prometheus_check.stdout"
+      when: "'mon' in inventory_hostname"
+      ignore_errors: yes
+
+    - name: Reinstalar Prometheus se necessário
+      shell: |
+        wget https://github.com/prometheus/prometheus/releases/download/v2.54.0/prometheus-2.54.0.linux-arm64.tar.gz
+        tar xvf prometheus-2.54.0.linux-arm64.tar.gz
+        mv prometheus-2.54.0.linux-arm64/prometheus /usr/local/bin/
+      when: "'mon' in inventory_hostname and prometheus_check.rc != 0"
+
+  handlers:
+    - name: Reiniciar Redis
+      service:
+        name: redis-server
+        state: restarted
