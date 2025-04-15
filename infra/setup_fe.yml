@@ -1,0 +1,302 @@
+- name: Configurar Servidores Frontend (FE)
+  hosts: eu-fe-01:na-fe-01:sa-fe-01:af-fe-01:as-fe-01:au-fe-01:me-fe-01
+  become: yes
+  vars:
+    region: "{{ inventory_hostname.split('-')[0].lower() }}"
+  tasks:
+    - name: Instalar Node.js (18.20.0)
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs=18.20.0*
+      args:
+        creates: /usr/bin/node
+
+    - name: Verificar versão do Node.js
+      ansible.builtin.command: node --version
+      register: node_version
+      failed_when: node_version.stdout != "v18.20.0"
+      changed_when: false
+
+    - name: Instalar Fastify (4.28.0) e dependências
+      npm:
+        name: "{{ item }}"
+        version: "{{ item_version }}"
+        global: yes
+      loop:
+        - { item: fastify, item_version: 4.28.0 }
+        - { item: fastify-compress, item_version: latest }
+        - { item: fastify-rate-limit, item_version: latest }
+        - { item: fastify-helmet, item_version: latest }
+
+    - name: Instalar Redis (7.2.0)
+      apt:
+        name: redis-server=7.2.0*
+        state: present
+
+    - name: Configurar Redis
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^maxmemory '
+        line: 'maxmemory 4GB'
+      notify: Reiniciar Redis
+
+    - name: Configurar Redis para partições regionais
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^databases '
+        line: 'databases 16'
+      notify: Reiniciar Redis
+
+    - name: Instalar Varnish (para cache de páginas)
+      apt:
+        name: varnish
+        state: present
+
+    - name: Configurar Varnish para cache de páginas e APIs
+      copy:
+        content: |
+          vcl 4.1;
+          backend default {
+              .host = "127.0.0.1";
+              .port = "3000";
+          }
+          sub vcl_recv {
+              if (req.url ~ "^/tokens" || req.url ~ "^/token/" || req.url ~ "^/static") {
+                  return (hash);
+              }
+              if (req.method == "PURGE") {
+                  return (purge);
+              }
+          }
+          sub vcl_backend_response {
+              if (bereq.url ~ "^/tokens" || bereq.url ~ "^/token/") {
+                  set beresp.ttl = 10s;
+              }
+              if (bereq.url ~ "^/static") {
+                  set beresp.ttl = 60s;
+              }
+          }
+        dest: /etc/varnish/default.vcl
+      notify: Reiniciar Varnish
+
+    - name: Instalar Envoy (1.31.0)
+      shell: |
+        wget https://github.com/envoyproxy/envoy/releases/download/v1.31.0/envoy-1.31.0-linux-arm64.tar.gz
+        tar xvf envoy-1.31.0-linux-arm64.tar.gz
+        mv envoy-1.31.0-linux-arm64/envoy /usr/local/bin/
+      args:
+        creates: /usr/local/bin/envoy
+
+    - name: Configurar Envoy para roteamento por região e idioma
+      copy:
+        content: |
+          admin:
+            access_log_path: /var/log/envoy_access.log
+            address:
+              socket_address: { address: 0.0.0.0, port_value: 9901 }
+          static_resources:
+            listeners:
+            - name: listener_0
+              address:
+                socket_address: { address: 0.0.0.0, port_value: 80 }
+              filter_chains:
+              - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ingress_http
+                    route_config:
+                      name: local_route
+                      virtual_hosts:
+                      - name: local_service
+                        domains: ["*"]
+                        routes:
+                        - match:
+                            prefix: "/"
+                            headers:
+                            - name: x-region
+                              string_match: { exact: "{{ region }}" }
+                          route:
+                            cluster: backend_service
+                    http_filters:
+                    - name: envoy.filters.http.router
+                      typed_config:
+                        "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+            clusters:
+            - name: backend_service
+              connect_timeout: 5s
+              type: LOGICAL_DNS
+              lb_policy: ROUND_ROBIN
+              load_assignment:
+                cluster_name: backend_service
+                endpoints:
+                - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 3000
+              health_checks:
+              - timeout: 5s
+                interval: 10s
+                unhealthy_threshold: 3
+                healthy_threshold: 3
+                http_health_check:
+                  path: "/health"
+        dest: /etc/envoy/envoy.yaml
+      notify: Reiniciar Envoy
+
+    - name: Criar diretório para a aplicação React
+      file:
+        path: /opt/blitzhub-fe
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configurar aplicação React (com Vite e Tailwind CSS)
+      shell: |
+        npm create vite@5.4.0 /opt/blitzhub-fe -- --template react
+        cd /opt/blitzhub-fe
+        npm install react@18.3.0 react-dom@18.3.0 recharts@2.12.0 react-joyride@2.8.0
+        npm install -D tailwindcss@3.4.0 postcss autoprefixer
+        npx tailwindcss init -p
+      args:
+        creates: /opt/blitzhub-fe/package.json
+
+    - name: Configurar Tailwind CSS
+      copy:
+        content: |
+          /** @type {import('tailwindcss').Config} */
+          module.exports = {
+            content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+            theme: { extend: {} },
+            plugins: [],
+            darkMode: 'media',
+            purge: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
+          }
+        dest: /opt/blitzhub-fe/tailwind.config.js
+
+    - name: Configurar Vite para build otimizado
+      copy:
+        content: |
+          import { defineConfig } from 'vite'
+          import react from '@vitejs/plugin-react'
+
+          export default defineConfig({
+            plugins: [react()],
+            build: {
+              target: 'esnext',
+              minify: 'terser',
+              rollupOptions: {
+                output: {
+                  manualChunks: {
+                    vendor: ['react', 'react-dom'],
+                    charts: ['recharts'],
+                  },
+                },
+              },
+            },
+            define: {
+              'process.env.REGION': JSON.stringify('{{ region }}'),
+            },
+          })
+        dest: /opt/blitzhub-fe/vite.config.js
+
+    - name: Configurar firewall (UFW) para FE
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - 80    # HTTP
+        - 443   # HTTPS
+        - 3000  # Fastify
+        - 9901  # Envoy Admin
+
+    - name: Criar serviço Systemd para Fastify
+      copy:
+        content: |
+          [Unit]
+          Description=BlitzHub Fastify Server
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/bin/node /opt/blitzhub-fe/server.js
+          WorkingDirectory=/opt/blitzhub-fe
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/fastify.service
+      notify: Reiniciar Fastify
+
+    - name: Criar um servidor Fastify básico
+      copy:
+        content: |
+          const fastify = require('fastify')({ logger: true })
+          fastify.register(require('fastify-compress'))
+          fastify.register(require('fastify-rate-limit'), { max: 50, timeWindow: '10 seconds' })
+          fastify.register(require('fastify-helmet'))
+
+          fastify.get('/health', async (request, reply) => {
+            return { status: 'ok' }
+          })
+
+          fastify.get('/tokens', async (request, reply) => {
+            return [{ mint: '0x1234', name: 'ExampleToken', market_cap: 1000 }]
+          })
+
+          fastify.get('/token/:mint', async (request, reply) => {
+            const { mint } = request.params
+            return {
+              mint,
+              name: 'ExampleToken',
+              symbol: 'EXM',
+              description: 'A sample token',
+              market_cap: 1000,
+              volume_24h: 500,
+              holders: 10,
+              social_links: { twitter: 'https://twitter.com/example', telegram: 'https://t.me/example' },
+              activities: [{ type: 'buy', total_usd: 100, amount: 1000, price: 0.1, maker: '0x5678' }],
+              created_at: '2025-04-14T10:00:00Z'
+            }
+          })
+
+          fastify.listen({ port: 3000, host: '0.0.0.0' }, (err) => {
+            if (err) throw err
+          })
+        dest: /opt/blitzhub-fe/server.js
+
+    - name: Iniciar serviços
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      loop:
+        - redis-server
+        - varnish
+        - fastify
+
+  handlers:
+    - name: Reiniciar Redis
+      service:
+        name: redis-server
+        state: restarted
+
+    - name: Reiniciar Varnish
+      service:
+        name: varnish
+        state: restarted
+
+    - name: Reiniciar Envoy
+      shell: |
+        pkill envoy || true
+        nohup /usr/local/bin/envoy -c /etc/envoy/envoy.yaml &
+      args:
+        executable: /bin/bash
+
+    - name: Reiniciar Fastify
+      systemd:
+        name: fastify
+        state: restarted
