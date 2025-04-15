@@ -1,0 +1,70 @@
+- name: Configurar Regras de Segurança de Rede
+  hosts: localhost
+  connection: local
+  vars:
+    oci_config_file: "~/.oci/config"
+    accounts:
+      - { profile: "EU-FE-01", region: "eu-frankfurt-1", vcn_id: "ocid1.vcn.oc1..example" }
+      - { profile: "NA-FE-01", region: "us-ashburn-1", vcn_id: "ocid1.vcn.oc1..example" }
+      # Adicione outras contas conforme necessário
+    compartment_id: "ocid1.compartment.oc1..example"
+  tasks:
+    - name: Criar Security List para cada VCN
+      oci_network_security_list:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        vcn_id: "{{ item.vcn_id }}"
+        display_name: "BlitzHubSecurityList{{ item.profile }}"
+        ingress_security_rules:
+          - source: "0.0.0.0/0"
+            protocol: "6"  # TCP
+            tcp_options:
+              destination_port_range:
+                min: 80
+                max: 80
+          - source: "0.0.0.0/0"
+            protocol: "6"
+            tcp_options:
+              destination_port_range:
+                min: 443
+                max: 443
+          - source: "0.0.0.0/0"
+            protocol: "6"
+            tcp_options:
+              destination_port_range:
+                min: 8899
+                max: 8899  # Solana RPC
+        egress_security_rules:
+          - destination: "0.0.0.0/0"
+            protocol: "all"
+        state: present
+      loop: "{{ accounts }}"
+
+    - name: Criar Network Security Group (NSG)
+      oci_network_security_group:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        vcn_id: "{{ item.vcn_id }}"
+        display_name: "BlitzHubNSG{{ item.profile }}"
+        state: present
+      loop: "{{ accounts }}"
+      register: nsg_result
+
+    - name: Configurar regras do NSG
+      oci_network_security_group_security_rule:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        network_security_group_id: "{{ nsg_result.results[loop_index].network_security_group.id }}"
+        direction: "INGRESS"
+        protocol: "6"
+        source: "0.0.0.0/0"
+        tcp_options:
+          destination_port_range:
+            min: 3000
+            max: 3000
+        state: present
+      loop: "{{ accounts }}"
+      loop_control:
+        index_var: loop_index
