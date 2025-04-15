@@ -1,0 +1,50 @@
+- name: Configurar Rede Principal (VCN) na conta EU-NET-01
+  hosts: localhost
+  connection: local
+  vars:
+    oci_config_file: "~/.oci/config"
+    oci_profile: "EU-NET-01"
+    compartment_id: "ocid1.compartment.oc1..example"
+    region: "eu-frankfurt-1"
+  tasks:
+    - name: Criar VCN principal (BlitzHubVCN)
+      oci_network_vcn:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ oci_profile }}"
+        compartment_id: "{{ compartment_id }}"
+        display_name: "BlitzHubVCN"
+        cidr_block: "10.0.0.0/16"
+        state: present
+      register: vcn_result
+
+    - name: Criar Internet Gateway
+      oci_network_internet_gateway:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ oci_profile }}"
+        compartment_id: "{{ compartment_id }}"
+        vcn_id: "{{ vcn_result.vcn.id }}"
+        display_name: "BlitzHubIG"
+        state: present
+
+    - name: Criar Route Table para Internet Gateway
+      oci_network_route_table:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ oci_profile }}"
+        compartment_id: "{{ compartment_id }}"
+        vcn_id: "{{ vcn_result.vcn.id }}"
+        display_name: "BlitzHubRouteTable"
+        route_rules:
+          - destination: "0.0.0.0/0"
+            destination_type: "CIDR_BLOCK"
+            network_entity_id: "{{ vcn_result.vcn.id }}"
+        state: present
+
+    - name: Criar Subnet para EU-NET-01
+      oci_network_subnet:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ oci_profile }}"
+        compartment_id: "{{ compartment_id }}"
+        vcn_id: "{{ vcn_result.vcn.id }}"
+        display_name: "BlitzHubSubnetEU"
+        cidr_block: "10.0.1.0/24"
+        state: present
