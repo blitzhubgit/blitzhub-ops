@@ -1,7 +1,7 @@
 # Business Model for BlitzHub 🚀
 
 ## Overview 📜
-BlitzHub is a platform on the Solana blockchain that enables creators to launch and trade tokens, primarily meme coins, with the goal of graduating them to Raydium once they reach a market cap of $50,000. The platform uses a bonding curve to determine token prices during trading, accumulates value in a vault, and creates a liquidity pool (LP) on Raydium upon graduation. The model includes token retention, burning, proportional fee refunds, and aggressive creator incentives to drive participation.
+BlitzHub is a platform on the Solana blockchain that enables creators to launch and trade tokens, primarily meme coins, with the goal of graduating them to Raydium once they reach a market cap of $69,000. The platform uses a bonding curve to determine token prices during trading, accumulates value in a vault, and creates a liquidity pool (LP) on Raydium upon graduation. The model includes token retention, burning, proportional fee refunds, and aggressive creator incentives to drive participation. The graduation target of $69,000 was chosen for its symbolic significance in the crypto and meme coin community, where the number 69 is a well-known internet meme often associated with humor and virality—values that resonate with the meme coin culture. This number also aligns BlitzHub competitively with platforms like Pump.fun (which uses a 69,000 RAY target, approximately $138,000), while keeping the goal more accessible to creators, fostering more frequent graduations and enhancing the platform's appeal.
 
 ## Key Mechanics ⚙️
 
@@ -29,19 +29,19 @@ BlitzHub is a platform on the Solana blockchain that enables creators to launch 
 - **Subsequent Trading**:
   - Tokens are traded using a bonding curve (linear or exponential, not specified).
   - Platform fees: 0%-0.5% (average 0.25%), fully refunded to traders upon graduation.
-- **Market Cap Target for Graduation**: $50,000 🎯.
+- **Market Cap Target for Graduation**: $69,000 🎯.
 - **Volume Accumulated in Vault**:
   - Estimated based on a bonding curve ratio (volume:market cap).
-  - Base scenario: 3:1 ratio → 1,000 SOL ($150,000).
+  - Base scenario: 3:1 ratio → 1,380 SOL ($207,000).
 
 ### Graduation to Raydium 🌟
 - **Liquidity Pool (LP)**:
-  - 445 SOL ($66,750) to create the LP on Raydium.
+  - 614 SOL ($92,100) to create the LP on Raydium.
   - LP Structure (50/50 SOL/Token):
-    - 222.5 SOL ($33,375).
-    - 460.5M tokens (adjusted based on token price, see below).
+    - 307 SOL ($46,050).
+    - 634.5M tokens (adjusted based on token price, see below).
 - **Slippage**:
-  - Order of 66.67 SOL ($10,000): Slippage = (66.67 ÷ 445) × 100% = 15% 📉.
+  - Order of 66.67 SOL ($10,000): Slippage = (66.67 ÷ 614) × 100% = 10.8% 📉.
 
 ### Fee Structure 💰
 - **Platform Fees**:
@@ -72,143 +72,143 @@ BlitzHub is a platform on the Solana blockchain that enables creators to launch 
 
 ### Base Assumptions
 - **SOL Price**: $150/SOL.
-- **Volume Accumulated (Vault)**: 1,000 SOL ($150,000, 3:1 ratio with market cap of $50,000).
+- **Volume Accumulated (Vault)**: 1,380 SOL ($207,000, 3:1 ratio with market cap of $69,000).
 - **Creator's Initial Purchase**:
-  - 0.333 SOL ($50), included in the 1,000 SOL ($150,000).
+  - 0.333 SOL ($50), included in the 1,380 SOL ($207,000).
 - **Platform Fees**:
   - Creator's purchase: 0.333 SOL ($50), 0% fees → 0 SOL ($0).
-  - Remaining volume: 1,000 SOL ($150,000) - 0.333 SOL ($50) = 999.667 SOL ($149,950).
-  - Fees collected: 999.667 SOL × 0.0025 = 2.5 SOL ($375).
+  - Remaining volume: 1,380 SOL ($207,000) - 0.333 SOL ($50) = 1,379.667 SOL ($206,950).
+  - Fees collected: 1,379.667 SOL × 0.0025 = 3.45 SOL ($517.50).
 - **Tokens in Circulation (Pre-LP)**:
   - Total: 1B.
   - Development: 10M.
   - Burned: 300M.
   - Initial circulation: 1B - 10M - 300M = 690M.
 - **Price per Token (Pre-LP)**:
-  - Market cap: $50,000.
+  - Market cap: $69,000.
   - Tokens: 690M.
-  - Price: $50,000 ÷ 690M = $0.00007246.
+  - Price: $69,000 ÷ 690M = $0.0001.
 - **LP Adjustment**:
-  - 222.5 SOL ($33,375) worth of tokens.
-  - $33,375 ÷ $0.00007246 = 460.5M tokens.
+  - 307 SOL ($46,050) worth of tokens.
+  - $46,050 ÷ $0.0001 = 460.5M tokens.
   - Tokens in circulation after LP: 690M - 460.5M = 229.5M.
 - **Final Price per Token**:
-  - Market cap: $50,000.
+  - Market cap: $69,000.
   - Tokens: 229.5M.
-  - Price: $50,000 ÷ 229.5M = $0.00021786.
+  - Price: $69,000 ÷ 229.5M = $0.00030065.
 
 ### Financials (Standard Creator) 💵
-- **Vault**: 1,000 SOL ($150,000).
-- **LP**: 445 SOL ($66,750).
-- **Remaining in Vault**: 1,000 SOL ($150,000) - 445 SOL ($66,750) = 555 SOL ($83,250).
+- **Vault**: 1,380 SOL ($207,000).
+- **LP**: 614 SOL ($92,100).
+- **Remaining in Vault**: 1,380 SOL ($207,000) - 614 SOL ($92,100) = 766 SOL ($114,900).
 - **Expenses**:
-  - Platform Fee Refunds: 2.5 SOL ($375).
+  - Platform Fee Refunds: 3.45 SOL ($517.50).
   - Creator Reward: 10 SOL ($1,500).
   - Milestone Reward: 2 SOL ($300) (assumed achieved).
   - Network Fees (platform-paid): 0.053 SOL ($7.95).
   - Referral Bonus: 0.5 SOL ($75).
-  - Total: 2.5 + 10 + 2 + 0.053 + 0.5 = 15.053 SOL ($2,257.95).
-- **Profit in Vault**: 555 SOL ($83,250) - 15.053 SOL ($2,257.95) = 539.947 SOL ($80,992.05).
+  - Total: 3.45 + 10 + 2 + 0.053 + 0.5 = 16.003 SOL ($2,400.45).
+- **Profit in Vault**: 766 SOL ($114,900) - 16.003 SOL ($2,400.45) = 749.997 SOL ($112,499.55).
 - **Mitigating Volatility**:
-  - 50% in USDC: 539.947 ÷ 2 = 269.9735 SOL → $40,496.03.
-  - 50% in SOL: 269.9735 SOL ($40,496.03, fluctuates with SOL price).
-- **Profit Margin**: $40,496.03 ÷ $150,000 = 27%.
+  - 50% in USDC: 749.997 ÷ 2 = 374.9985 SOL → $56,249.78.
+  - 50% in SOL: 374.9985 SOL ($56,249.78, fluctuates with SOL price).
+- **Profit Margin**: $56,249.78 ÷ $207,000 = 27.17%.
 
 ### Financials (Promotions Creator) 💵
 - **Expenses**:
   - Creator Reward: 15 SOL ($2,250).
-  - Total: 2.5 + 15 + 2 + 0.053 + 0.5 = 20.053 SOL ($3,007.95).
-- **Profit in Vault**: 555 SOL ($83,250) - 20.053 SOL ($3,007.95) = 534.947 SOL ($80,242.05).
+  - Total: 3.45 + 15 + 2 + 0.053 + 0.5 = 21.003 SOL ($3,150.45).
+- **Profit in Vault**: 766 SOL ($114,900) - 21.003 SOL ($3,150.45) = 744.997 SOL ($111,749.55).
 - **Mitigating Volatility**:
-  - 50% in USDC: 534.947 ÷ 2 = 267.4735 SOL → $40,121.03.
-  - 50% in SOL: 267.4735 SOL ($40,121.03).
-- **Profit Margin**: $40,121.03 ÷ $150,000 = 26.75%.
+  - 50% in USDC: 744.997 ÷ 2 = 372.4985 SOL → $55,874.78.
+  - 50% in SOL: 372.4985 SOL ($55,874.78).
+- **Profit Margin**: $55,874.78 ÷ $207,000 = 27%.
 
 ### Financials (Influencers/Teams/Discord Creator) 💵
 - **Expenses**:
   - Creator Reward: 20 SOL ($3,000).
-  - Total: 2.5 + 20 + 2 + 0.053 + 0.5 = 25.053 SOL ($3,757.95).
-- **Profit in Vault**: 555 SOL ($83,250) - 25.053 SOL ($3,757.95) = 529.947 SOL ($79,492.05).
+  - Total: 3.45 + 20 + 2 + 0.053 + 0.5 = 26.003 SOL ($3,900.45).
+- **Profit in Vault**: 766 SOL ($114,900) - 26.003 SOL ($3,900.45) = 739.997 SOL ($110,999.55).
 - **Mitigating Volatility**:
-  - 50% in USDC: 529.947 ÷ 2 = 264.9735 SOL → $39,746.03.
-  - 50% in SOL: 264.9735 SOL ($39,746.03).
-- **Profit Margin**: $39,746.03 ÷ $150,000 = 26.5%.
+  - 50% in USDC: 739.997 ÷ 2 = 369.9985 SOL → $55,499.78.
+  - 50% in SOL: 369.9985 SOL ($55,499.78).
+- **Profit Margin**: $55,499.78 ÷ $207,000 = 26.81%.
 
 ## Scenario Analysis (Different Volume:Market Cap Ratios) 🔍
 
 ### Scenario 1: 2:1 Ratio
-- **Volume Accumulated**: $50,000 × 2 = 666.67 SOL ($100,000).
+- **Volume Accumulated**: $69,000 × 2 = 920 SOL ($138,000).
 - **Platform Fees**:
   - Creator's purchase: 0.333 SOL ($50), 0% fees → 0 SOL ($0).
-  - Remaining volume: 666.67 SOL ($100,000) - 0.333 SOL ($50) = 666.337 SOL ($99,950).
-  - Fees collected: 666.337 SOL × 0.0025 = 1.67 SOL ($250.50).
-- **Vault After LP**: 666.67 SOL ($100,000) - 445 SOL ($66,750) = 221.67 SOL ($33,250).
+  - Remaining volume: 920 SOL ($138,000) - 0.333 SOL ($50) = 919.667 SOL ($137,950).
+  - Fees collected: 919.667 SOL × 0.0025 = 2.3 SOL ($345).
+- **Vault After LP**: 920 SOL ($138,000) - 614 SOL ($92,100) = 306 SOL ($45,900).
 - **Expenses (Standard)**:
-  - Fee Refunds: 1.67 SOL ($250.50).
-  - Total Expenses: 1.67 + 10 + 2 + 0.053 + 0.5 = 14.223 SOL ($2,133.45).
-- **Profit in Vault**: 221.67 SOL ($33,250) - 14.223 SOL ($2,133.45) = 207.447 SOL ($31,117.05).
+  - Fee Refunds: 2.3 SOL ($345).
+  - Total Expenses: 2.3 + 10 + 2 + 0.053 + 0.5 = 14.853 SOL ($2,227.95).
+- **Profit in Vault**: 306 SOL ($45,900) - 14.853 SOL ($2,227.95) = 291.147 SOL ($43,672.05).
 - **Mitigating Volatility**:
-  - 50% in USDC: 207.447 ÷ 2 = 103.7235 SOL → $15,558.53.
-  - 50% in SOL: 103.7235 SOL ($15,558.53).
-- **Profit Margin**: $15,558.53 ÷ $100,000 = 15.56%.
+  - 50% in USDC: 291.147 ÷ 2 = 145.5735 SOL → $21,836.03.
+  - 50% in SOL: 145.5735 SOL ($21,836.03).
+- **Profit Margin**: $21,836.03 ÷ $138,000 = 15.82%.
 
 ### Scenario 2: 4:1 Ratio
-- **Volume Accumulated**: $50,000 × 4 = 1,333.33 SOL ($200,000).
+- **Volume Accumulated**: $69,000 × 4 = 1,840 SOL ($276,000).
 - **Platform Fees**:
   - Creator's purchase: 0.333 SOL ($50), 0% fees → 0 SOL ($0).
-  - Remaining volume: 1,333.33 SOL ($200,000) - 0.333 SOL ($50) = 1,332.997 SOL ($199,950).
-  - Fees collected: 1,332.997 SOL × 0.0025 = 3.33 SOL ($499.50).
-- **Vault After LP**: 1,333.33 SOL ($200,000) - 445 SOL ($66,750) = 888.33 SOL ($133,250).
+  - Remaining volume: 1,840 SOL ($276,000) - 0.333 SOL ($50) = 1,839.667 SOL ($275,950).
+  - Fees collected: 1,839.667 SOL × 0.0025 = 4.6 SOL ($690).
+- **Vault After LP**: 1,840 SOL ($276,000) - 614 SOL ($92,100) = 1,226 SOL ($183,900).
 - **Expenses (Standard)**:
-  - Fee Refunds: 3.33 SOL ($499.50).
-  - Total Expenses: 3.33 + 10 + 2 + 0.053 + 0.5 = 15.883 SOL ($2,382.45).
-- **Profit in Vault**: 888.33 SOL ($133,250) - 15.883 SOL ($2,382.45) = 872.447 SOL ($130,867.05).
+  - Fee Refunds: 4.6 SOL ($690).
+  - Total Expenses: 4.6 + 10 + 2 + 0.053 + 0.5 = 17.153 SOL ($2,572.95).
+- **Profit in Vault**: 1,226 SOL ($183,900) - 17.153 SOL ($2,572.95) = 1,208.847 SOL ($181,327.05).
 - **Mitigating Volatility**:
-  - 50% in USDC: 872.447 ÷ 2 = 436.2235 SOL → $65,433.53.
-  - 50% in SOL: 436.2235 SOL ($65,433.53).
-- **Profit Margin**: $65,433.53 ÷ $200,000 = 32.72%.
+  - 50% in USDC: 1,208.847 ÷ 2 = 604.4235 SOL → $90,663.53.
+  - 50% in SOL: 604.4235 SOL ($90,663.53).
+- **Profit Margin**: $90,663.53 ÷ $276,000 = 32.85%.
 
 ### Scenario 3: 2.5:1 Ratio
-- **Volume Accumulated**: $50,000 × 2.5 = 833.33 SOL ($125,000).
+- **Volume Accumulated**: $69,000 × 2.5 = 1,150 SOL ($172,500).
 - **Platform Fees**:
   - Creator's purchase: 0.333 SOL ($50), 0% fees → 0 SOL ($0).
-  - Remaining volume: 833.33 SOL ($125,000) - 0.333 SOL ($50) = 832.997 SOL ($124,950).
-  - Fees collected: 832.997 SOL × 0.0025 = 2.08 SOL ($312).
-- **Vault After LP**: 833.33 SOL ($125,000) - 445 SOL ($66,750) = 388.33 SOL ($58,250).
+  - Remaining volume: 1,150 SOL ($172,500) - 0.333 SOL ($50) = 1,149.667 SOL ($172,450).
+  - Fees collected: 1,149.667 SOL × 0.0025 = 2.87 SOL ($430.50).
+- **Vault After LP**: 1,150 SOL ($172,500) - 614 SOL ($92,100) = 536 SOL ($80,400).
 - **Expenses (Standard)**:
-  - Fee Refunds: 2.08 SOL ($312).
-  - Total Expenses: 2.08 + 10 + 2 + 0.053 + 0.5 = 14.633 SOL ($2,194.95).
-- **Profit in Vault**: 388.33 SOL ($58,250) - 14.633 SOL ($2,194.95) = 373.697 SOL ($56,054.55).
+  - Fee Refunds: 2.87 SOL ($430.50).
+  - Total Expenses: 2.87 + 10 + 2 + 0.053 + 0.5 = 15.423 SOL ($2,313.45).
+- **Profit in Vault**: 536 SOL ($80,400) - 15.423 SOL ($2,313.45) = 520.577 SOL ($78,086.55).
 - **Mitigating Volatility**:
-  - 50% in USDC: 373.697 ÷ 2 = 186.8485 SOL → $28,027.28.
-  - 50% in SOL: 186.8485 SOL ($28,027.28).
-- **Profit Margin**: $28,027.28 ÷ $125,000 = 22.42%.
+  - 50% in USDC: 520.577 ÷ 2 = 260.2885 SOL → $39,043.28.
+  - 50% in SOL: 260.2885 SOL ($39,043.28).
+- **Profit Margin**: $39,043.28 ÷ $172,500 = 22.63%.
 
 ## Summary Tables 📊
 
 ### Financial Summary (Standard Creator)
-| **Scenario**      | **Volume (SOL/USD)**      | **Profit (SOL/USD)**      | **Profit (USDC)** | **Profit Margin** |
-|-------------------|---------------------------|---------------------------|-------------------|-------------------|
-| 2:1 Ratio         | 666.67 SOL ($100,000)     | 207.447 SOL ($31,117.05)  | $15,558.53        | 15.56%            |
-| 2.5:1 Ratio       | 833.33 SOL ($125,000)     | 373.697 SOL ($56,054.55)  | $28,027.28        | 22.42%            |
-| 3:1 Ratio (Base)  | 1,000 SOL ($150,000)      | 539.947 SOL ($80,992.05)  | $40,496.03        | 27%               |
-| 4:1 Ratio         | 1,333.33 SOL ($200,000)   | 872.447 SOL ($130,867.05) | $65,433.53        | 32.72%            |
+| **Scenario** | **Volume (SOL/USD)** | **Profit (SOL/USD)** | **Profit (USDC)** | **Profit Margin** |
+| --- | --- | --- | --- | --- |
+| 2:1 Ratio | 920 SOL ($138,000) | 291.147 SOL ($43,672.05) | $21,836.03 | 15.82% |
+| 2.5:1 Ratio | 1,150 SOL ($172,500) | 520.577 SOL ($78,086.55) | $39,043.28 | 22.63% |
+| 3:1 Ratio (Base) | 1,380 SOL ($207,000) | 749.997 SOL ($112,499.55) | $56,249.78 | 27.17% |
+| 4:1 Ratio | 1,840 SOL ($276,000) | 1,208.847 SOL ($181,327.05) | $90,663.53 | 32.85% |
 
 ### Financial Summary (Promotions Creator)
-| **Scenario**      | **Volume (SOL/USD)**      | **Profit (SOL/USD)**      | **Profit (USDC)** | **Profit Margin** |
-|-------------------|---------------------------|---------------------------|-------------------|-------------------|
-| 2:1 Ratio         | 666.67 SOL ($100,000)     | 202.447 SOL ($30,367.05)  | $15,183.53        | 15.18%            |
-| 2.5:1 Ratio       | 833.33 SOL ($125,000)     | 368.697 SOL ($55,304.55)  | $27,652.28        | 22.12%            |
-| 3:1 Ratio (Base)  | 1,000 SOL ($150,000)      | 534.947 SOL ($80,242.05)  | $40,121.03        | 26.75%            |
-| 4:1 Ratio         | 1,333.33 SOL ($200,000)   | 867.447 SOL ($130,117.05) | $65,058.53        | 32.53%            |
+| **Scenario** | **Volume (SOL/USD)** | **Profit (SOL/USD)** | **Profit (USDC)** | **Profit Margin** |
+| --- | --- | --- | --- | --- |
+| 2:1 Ratio | 920 SOL ($138,000) | 286.147 SOL ($42,922.05) | $21,461.03 | 15.55% |
+| 2.5:1 Ratio | 1,150 SOL ($172,500) | 515.577 SOL ($77,336.55) | $38,668.28 | 22.42% |
+| 3:1 Ratio (Base) | 1,380 SOL ($207,000) | 744.997 SOL ($111,749.55) | $55,874.78 | 27% |
+| 4:1 Ratio | 1,840 SOL ($276,000) | 1,203.847 SOL ($180,577.05) | $90,288.53 | 32.71% |
 
 ### Financial Summary (Influencers/Teams/Discord Creator)
-| **Scenario**      | **Volume (SOL/USD)**      | **Profit (SOL/USD)**      | **Profit (USDC)** | **Profit Margin** |
-|-------------------|---------------------------|---------------------------|-------------------|-------------------|
-| 2:1 Ratio         | 666.67 SOL ($100,000)     | 197.447 SOL ($29,617.05)  | $14,808.53        | 14.81%            |
-| 2.5:1 Ratio       | 833.33 SOL ($125,000)     | 363.697 SOL ($54,554.55)  | $27,277.28        | 21.82%            |
-| 3:1 Ratio (Base)  | 1,000 SOL ($150,000)      | 529.947 SOL ($79,492.05)  | $39,746.03        | 26.5%             |
-| 4:1 Ratio         | 1,333.33 SOL ($200,000)   | 862.447 SOL ($129,367.05) | $64,683.53        | 32.34%            |
+| **Scenario** | **Volume (SOL/USD)** | **Profit (SOL/USD)** | **Profit (USDC)** | **Profit Margin** |
+| --- | --- | --- | --- | --- |
+| 2:1 Ratio | 920 SOL ($138,000) | 281.147 SOL ($42,172.05) | $21,086.03 | 15.28% |
+| 2.5:1 Ratio | 1,150 SOL ($172,500) | 510.577 SOL ($76,586.55) | $38,293.28 | 22.20% |
+| 3:1 Ratio (Base) | 1,380 SOL ($207,000) | 739.997 SOL ($110,999.55) | $55,499.78 | 26.81% |
+| 4:1 Ratio | 1,840 SOL ($276,000) | 1,198.847 SOL ($179,827.05) | $89,913.53 | 32.58% |
 
 ## Alignment with Degen Audit ✅
 - **NoMint**: Recommended to disable minting after token creation to prevent dilution.
@@ -217,14 +217,15 @@ BlitzHub is a platform on the Solana blockchain that enables creators to launch 
 - **Top10/Insiders**: Small allocation to creator (105,000 tokens from creation fee), no pre-sales or team allocations, minimizing concentration risks.
 
 ## Comparison with Pump.fun ⚖️
-| **Feature**            | **BlitzHub**                              | **Pump.fun**                             |
-|-------------------------|-------------------------------------------|------------------------------------------|
-| **Creation Fee**        | 0.01 SOL ($1.50) (covers network fees + tokens) | 0.02 SOL ($3) (revenue for platform)    |
-| **Creator Incentives**  | 10-20 SOL ($1,500-$3,000) + 2 SOL ($300) for $100K in 24h | 6 SOL ($900) per graduation            |
-| **Platform Fees**       | 0%-0.5% (avg 0.25%), fully refunded      | 1% (not refunded)                        |
-| **Liquidity Pool**      | 445 SOL ($66,750, slippage 15%)           | ~667 SOL (~$100,000, slippage ~5%-10%)  |
-| **Profit per Graduation** | 529.947-539.947 SOL ($79,492-$80,992 total, $39,746-$40,496 USDC) | ~400 SOL (~$60,000)                     |
-| **Volatility Mitigation** | 50% profit in USDC                      | Partial conversion to USDC               |
+| **Feature** | **BlitzHub** | **Pump.fun** |
+| --- | --- | --- |
+| **Creation Fee** | 0.01 SOL ($1.50) (covers network fees + tokens) | 0.02 SOL ($3) (revenue for platform) |
+| **Creator Incentives** | 10-20 SOL ($1,500-$3,000) + 2 SOL ($300) for $100K in 24h | 6 SOL ($900) per graduation |
+| **Platform Fees** | 0%-0.5% (avg 0.25%), fully refunded | 1% (not refunded) |
+| **Graduation Market Cap** | $69,000 | 69,000 RAY (~$138,000 @ $2/RAY) |
+| **Liquidity Pool** | 614 SOL ($92,100, slippage 10.8%) | ~667 SOL (~$100,000, slippage ~5%-10%) |
+| **Profit per Graduation** | 739.997-749.997 SOL ($110,999-$112,499 total, $55,499-$56,249 USDC) | ~400 SOL (~$60,000) |
+| **Volatility Mitigation** | 50% profit in USDC | Partial conversion to USDC |
 
 ## Recommendations 📋
 - Disable minting in the token contract to align with "NoMint: Yes".
