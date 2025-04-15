@@ -1,0 +1,49 @@
+{
+      "load_balancing": {
+        "mode": "active-active",
+        "pools": [
+          {
+            "name": "EU-BE-01",
+            "origins": [
+              {
+                "address": "eu-be.blitzhub.xyz",
+                "weight": 1
+              }
+            ]
+          },
+          {
+            "name": "NA-BE-01",
+            "origins": [
+              {
+                "address": "na-be.blitzhub.xyz",
+                "weight": 1
+              }
+            ]
+          }
+        ],
+        "steering_policy": "geo",
+        "geo_rules": [
+          {
+            "region": "Europe",
+            "pool": "EU-BE-01",
+            "priority": 1
+          },
+          {
+            "region": "North America",
+            "pool": "NA-BE-01",
+            "priority": 1
+          },
+          {
+            "region": "default",
+            "pool": ["EU-BE-01", "NA-BE-01"],
+            "fallback": "round-robin",
+            "weight": [0.5, 0.5]
+          }
+        ],
+        "health_check": {
+          "path": "/health",
+          "interval": 30,
+          "timeout": 5
+        }
+      }
+    }
