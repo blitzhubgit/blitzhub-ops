@@ -1,0 +1,269 @@
+- name: Configurar Servidores Backend (BE)
+  hosts: eu-be-01:na-be-01
+  become: yes
+  vars:
+    region: "{{ inventory_hostname.split('-')[0].lower() }}"
+  tasks:
+    - name: Instalar Node.js (18.20.0)
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs=18.20.0*
+      args:
+        creates: /usr/bin/node
+
+    - name: Instalar Fastify (4.28.0) e dependências
+      npm:
+        name: "{{ item }}"
+        version: "{{ item_version }}"
+        global: yes
+      loop:
+        - { item: fastify, item_version: 4.28.0 }
+        - { item: fastify-openapi, item_version: latest }
+        - { item: fastify-rate-limit, item_version: latest }
+        - { item: fastify-swagger, item_version: latest }
+
+    - name: Instalar Redis (7.2.0)
+      apt:
+        name: redis-server=7.2.0*
+        state: present
+
+    - name: Configurar Redis
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^maxmemory '
+        line: 'maxmemory 4GB'
+      notify: Reiniciar Redis
+
+    - name: Instalar RabbitMQ (3.12.0)
+      shell: |
+        curl -fsSL https://packagecloud.io/rabbitmq/rabbitmq-server/gpgkey | apt-key add -
+        echo "deb https://packagecloud.io/rabbitmq/rabbitmq-server/ubuntu/ bionic main" > /etc/apt/sources.list.d/rabbitmq.list
+        apt-get update
+        apt-get install -y rabbitmq-server=3.12.0*
+      args:
+        creates: /usr/sbin/rabbitmq-server
+
+    - name: Configurar RabbitMQ (filas regionais e prioridades)
+      shell: |
+        rabbitmqctl add_user blitzhub BlitzHub2025!
+        rabbitmqctl set_user_tags blitzhub administrator
+        rabbitmqctl set_permissions -p / blitzhub ".*" ".*" ".*"
+        rabbitmqctl eval 'rabbitmq_queues:grow(<<"/">>, <<"queue_{{ region }}_high">>, 10, [{<<"x-max-priority">>, 10}, {<<"x-message-ttl">>, 10000}]).'
+        rabbitmqctl eval 'rabbitmq_queues:grow(<<"/">>, <<"queue_{{ region }}_medium">>, 10, [{<<"x-max-priority">>, 5}, {<<"x-message-ttl">>, 10000}]).'
+        rabbitmqctl eval 'rabbitmq_queues:grow(<<"/">>, <<"queue_{{ region }}_low">>, 10, [{<<"x-max-priority">>, 1}, {<<"x-message-ttl">>, 10000}]).'
+      args:
+        creates: /var/lib/rabbitmq/.done
+
+    - name: Instalar Varnish
+      apt:
+        name: varnish
+        state: present
+
+    - name: Configurar Varnish para cache de APIs
+      copy:
+        content: |
+          vcl 4.1;
+          backend default {
+              .host = "127.0.0.1";
+              .port = "3000";
+          }
+          sub vcl_recv {
+              if (req.url ~ "^/api/tokens") {
+                  return (hash);
+              }
+          }
+          sub vcl_backend_response {
+              if (bereq.url ~ "^/api/tokens") {
+                  set beresp.ttl = 10s;
+              }
+          }
+        dest: /etc/varnish/default.vcl
+      notify: Reiniciar Varnish
+
+    - name: Instalar Envoy (1.31.0)
+      shell: |
+        wget https://github.com/envoyproxy/envoy/releases/download/v1.31.0/envoy-1.31.0-linux-arm64.tar.gz
+        tar xvf envoy-1.31.0-linux-arm64.tar.gz
+        mv envoy-1.31.0-linux-arm64/envoy /usr/local/bin/
+      args:
+        creates: /usr/local/bin/envoy
+
+    - name: Configurar Envoy para balanceamento por prioridade
+      copy:
+        content: |
+          admin:
+            access_log_path: /var/log/envoy_access.log
+            address:
+              socket_address: { address: 0.0.0.0, port_value: 9901 }
+          static_resources:
+            listeners:
+            - name: listener_0
+              address:
+                socket_address: { address: 0.0.0.0, port_value: 3000 }
+              filter_chains:
+              - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ingress_http
+                    route_config:
+                      name: local_route
+                      virtual_hosts:
+                      - name: local_service
+                        domains: ["*"]
+                        routes:
+                        - match:
+                            prefix: "/api/"
+                            headers:
+                            - name: x-priority
+                              string_match: { exact: "high" }
+                          route:
+                            cluster: backend_service_high
+                        - match:
+                            prefix: "/api/"
+                          route:
+                            cluster: backend_service
+                    http_filters:
+                    - name: envoy.filters.http.router
+                      typed_config:
+                        "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+            clusters:
+            - name: backend_service_high
+              connect_timeout: 5s
+              type: LOGICAL_DNS
+              lb_policy: ROUND_ROBIN
+              load_assignment:
+                cluster_name: backend_service_high
+                endpoints:
+                - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 3000
+            - name: backend_service
+              connect_timeout: 5s
+              type: LOGICAL_DNS
+              lb_policy: ROUND_ROBIN
+              load_assignment:
+                cluster_name: backend_service
+                endpoints:
+                - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 3000
+              health_checks:
+              - timeout: 5s
+                interval: 10s
+                unhealthy_threshold: 3
+                healthy_threshold: 3
+                http_health_check:
+                  path: "/health"
+        dest: /etc/envoy/envoy.yaml
+      notify: Reiniciar Envoy
+
+    - name: Instalar OpenTelemetry (0.52.0) e exportador Jaeger
+      npm:
+        name: "@opentelemetry/auto-instrumentations-node"
+        version: 0.52.0
+        global: yes
+
+    - name: Configurar firewall (UFW) para BE
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - 3000  # Fastify
+        - 6379  # Redis
+        - 5672  # RabbitMQ
+        - 9901  # Envoy Admin
+
+    - name: Criar diretório para a aplicação Backend
+      file:
+        path: /opt/blitzhub-be
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Criar um servidor Fastify básico com OpenTelemetry
+      copy:
+        content: |
+          const fastify = require('fastify')({ logger: true })
+          const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node')
+          const { SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base')
+          const { JaegerExporter } = require('@opentelemetry/exporter-jaeger')
+          const { registerInstrumentations } = require('@opentelemetry/auto-instrumentations-node')
+
+          const provider = new NodeTracerProvider()
+          const exporter = new JaegerExporter({ endpoint: 'http://localhost:14268/api/traces' })
+          provider.addSpanProcessor(new SimpleSpanProcessor(exporter))
+          provider.register()
+          registerInstrumentations()
+
+          fastify.register(require('fastify-rate-limit'), { max: 50, timeWindow: '10 seconds' })
+          fastify.register(require('fastify-openapi'))
+          fastify.register(require('fastify-swagger'))
+
+          fastify.get('/health', async (request, reply) => {
+            return { status: 'ok' }
+          })
+
+          fastify.listen({ port: 3000, host: '0.0.0.0' }, (err) => {
+            if (err) throw err
+          })
+        dest: /opt/blitzhub-be/server.js
+
+    - name: Criar serviço Systemd para Fastify
+      copy:
+        content: |
+          [Unit]
+          Description=BlitzHub Backend Fastify Server
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/bin/node /opt/blitzhub-be/server.js
+          WorkingDirectory=/opt/blitzhub-be
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/fastify.service
+      notify: Reiniciar Fastify
+
+    - name: Iniciar serviços
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      loop:
+        - redis-server
+        - rabbitmq-server
+        - varnish
+        - fastify
+
+  handlers:
+    - name: Reiniciar Redis
+      service:
+        name: redis-server
+        state: restarted
+
+    - name: Reiniciar Varnish
+      service:
+        name: varnish
+        state: restarted
+
+    - name: Reiniciar Envoy
+      shell: |
+        pkill envoy || true
+        nohup /usr/local/bin/envoy -c /etc/envoy/envoy.yaml &
+      args:
+        executable: /bin/bash
+
+    - name: Reiniciar Fastify
+      systemd:
+        name: fastify
+        state: restarted
