@@ -1,0 +1,46 @@
+- name: Configurar Object Storage
+  hosts: localhost
+  connection: local
+  vars:
+    oci_config_file: "~/.oci/config"
+    accounts:
+      - { profile: "EU-FE-01", region: "eu-frankfurt-1" }
+      - { profile: "NA-FE-01", region: "us-ashburn-1" }
+      # Adicione outras contas conforme necessário
+    compartment_id: "ocid1.compartment.oc1..example"
+  tasks:
+    - name: Criar bucket público para assets
+      oci_object_storage_bucket:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        name: "AssetsBlitzHub{{ item.profile }}"
+        storage_tier: "Standard"
+        public_access_type: "ObjectRead"
+        state: present
+      loop: "{{ accounts }}"
+
+    - name: Criar bucket privado para logs
+      oci_object_storage_bucket:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        name: "LogsBlitzHub{{ item.profile }}"
+        storage_tier: "Standard"
+        public_access_type: "NoPublicAccess"
+        state: present
+      loop: "{{ accounts }}"
+
+    - name: Configurar política de retenção de 30 dias para logs
+      oci_object_storage_bucket_lifecycle_policy:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        bucket_name: "LogsBlitzHub{{ item.profile }}"
+        rules:
+          - name: "delete-after-30-days"
+            action: "DELETE"
+            time_amount: 30
+            time_unit: "DAYS"
+            is_enabled: true
+        state: present
+      loop: "{{ accounts }}"
