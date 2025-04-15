@@ -1,1 +1,32 @@
 
+- name: Configurar VMs com Pacotes Básicos
+  hosts: all
+  become: yes
+  tasks:
+    - name: Atualizar pacotes
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Instalar pacotes básicos
+      apt:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - curl
+          - git
+          - ufw
+
+    - name: Configurar firewall (UFW)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - 22    # SSH (para todas as VMs)
+        - 80    # HTTP
+        - 443   # HTTPS
+
+    - name: Habilitar o UFW
+      ufw:
+        state: enabled
