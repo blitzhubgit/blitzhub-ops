@@ -29,6 +29,7 @@ Detailed setup instructions and configurations are available in the `infra/docs/
 - `database_setup.md`: Manual configuration steps for Autonomous Database.
 - `network_security_setup.md`: Manual configuration steps for Security Lists and NSGs.
 - `oci_credentials_setup.md`: Guide for extracting OCI credentials (Tenancy OCID, User OCID, etc.) to configure Ansible.
+- `ansible_tower_monitoring.md`: Guide for monitoring playbook execution in Ansible Tower and verifying success.
 - `oracle_accounts.md`: Credentials for the Oracle Cloud accounts.
 - `vm_inventory.md`: Inventory of VM IPs across all accounts.
 
@@ -55,7 +56,11 @@ Detailed setup instructions and configurations are available in the `infra/docs/
      7. `setup_network_security.yml` (configures network security rules).
      8. `failover.yml` and `restore.yml` (for failover and recovery, as needed).
 
-4. **Test the Infrastructure**:
+4. **Monitor Execution**:
+
+   - Follow `infra/docs/ansible_tower_monitoring.md` to monitor playbook execution in Ansible Tower and verify success.
+
+5. **Test the Infrastructure**:
 
    - Test load balancing: `curl http://eu-fe.blitzhub.sol/health`.
    - Test object storage: `oci os object get --bucket-name AssetsBlitzHubEU --name app.js`.
