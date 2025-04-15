@@ -5,7 +5,7 @@ Cloudflare is a critical component of BlitzHub's infrastructure, providing CDN (
 
 ## Prerequisites
 Before configuring Cloudflare, ensure the following:
-- Domain `blitzhub.sol` is registered and its nameservers are pointed to Cloudflare (e.g., `ns1.cloudflare.com`, `ns2.cloudflare.com`).
+- Domain `blitzhub.xyz` is registered and its nameservers are pointed to Cloudflare (e.g., `ns1.cloudflare.com`, `ns2.cloudflare.com`).
 - Access to Cloudflare dashboard with an account associated with `contact@klytic.com`.
 - API key for Cloudflare automation (available in Cloudflare dashboard under "My Profile" > "API Tokens").
 - IPs of Frontend servers (e.g., EU-FE-01 A1.Flex VM) are available (refer to `infra/docs/vm_inventory.md`).
@@ -14,7 +14,7 @@ Before configuring Cloudflare, ensure the following:
 ## Configuration Steps
 
 ### 1. DNS Setup
-Cloudflare manages DNS for `blitzhub.sol`, ensuring fast resolution, security, and geo-aware routing.
+Cloudflare manages DNS for `blitzhub.xyz`, ensuring fast resolution, security, and geo-aware routing.
 
 - **DNSSEC**:
   - Enable DNSSEC in Cloudflare dashboard to secure DNS queries.
@@ -23,11 +23,11 @@ Cloudflare manages DNS for `blitzhub.sol`, ensuring fast resolution, security, a
     1. Go to DNS > Settings > DNSSEC.
     2. Enable DNSSEC and note the DS record.
     3. Add the DS record to your domain registrar.
-    4. Verify with: `dig +dnssec blitzhub.sol`.
+    4. Verify with: `dig +dnssec blitzhub.xyz`.
 - **Records**:
   - **A Records**:
-    - `eu-fe.blitzhub.sol` → IP of EU-FE-01 A1.Flex VM (e.g., `141.123.45.67`).
-    - `na-fe.blitzhub.sol` → IP of NA-FE-01 A1.Flex VM (e.g., `132.234.56.78`).
+    - `eu-fe.blitzhub.xyz` → IP of EU-FE-01 A1.Flex VM (e.g., `141.123.45.67`).
+    - `na-fe.blitzhub.xyz` → IP of NA-FE-01 A1.Flex VM (e.g., `132.234.56.78`).
     - Similar records for SA-FE-01, AF-FE-01, AS-FE-01, AU-FE-01, and ME-FE-01.
     - Example in Cloudflare dashboard:
       - Type: A
@@ -36,12 +36,12 @@ Cloudflare manages DNS for `blitzhub.sol`, ensuring fast resolution, security, a
       - Proxy Status: Proxied
       - TTL: 300 seconds
   - **CNAME Records**:
-    - `api.blitzhub.sol` → `eu-be.blitzhub.sol` (Backend entry point).
-    - `ws.blitzhub.sol` → `eu-fe.blitzhub.sol` (WebSocket endpoint).
+    - `api.blitzhub.xyz` → `eu-be.blitzhub.xyz` (Backend entry point).
+    - `ws.blitzhub.xyz` → `eu-fe.blitzhub.xyz` (WebSocket endpoint).
     - Example in Cloudflare dashboard:
       - Type: CNAME
       - Name: `api`
-      - Target: `eu-be.blitzhub.sol`
+      - Target: `eu-be.blitzhub.xyz`
       - Proxy Status: Proxied
       - TTL: 300 seconds
   - **TXT Records**:
@@ -49,15 +49,15 @@ Cloudflare manages DNS for `blitzhub.sol`, ensuring fast resolution, security, a
     - DKIM: `v=DKIM1; k=rsa; p=<public_key>` (for email signing, replace `<public_key>` with your DKIM key).
     - Example in Cloudflare dashboard:
       - Type: TXT
-      - Name: `blitzhub.sol`
+      - Name: `blitzhub.xyz`
       - Value: `v=spf1 include:_spf.google.com ~all`
       - Proxy Status: DNS Only
       - TTL: 300 seconds
 - **GeoDNS**:
-  - Cloudflare automatically routes users to the nearest Frontend server based on their location (e.g., EU users to `eu-fe.blitzhub.sol`).
+  - Cloudflare automatically routes users to the nearest Frontend server based on their location (e.g., EU users to `eu-fe.blitzhub.xyz`).
   - No additional configuration required; GeoDNS is enabled by default when records are Proxied.
 - **CNAME Flattening**:
-  - Enable CNAME flattening for the apex domain (`blitzhub.sol`) to allow CNAME usage at the root.
+  - Enable CNAME flattening for the apex domain (`blitzhub.xyz`) to allow CNAME usage at the root.
   - Steps:
     1. Go to DNS > Settings > CNAME Flattening.
     2. Select "Flatten CNAME at apex".
@@ -76,7 +76,7 @@ Cloudflare's CDN reduces latency by caching content at ~300 Points of Presence (
       1. Go to Caching > Configuration.
       2. Set Browser Cache TTL to 604800 seconds.
       3. Create a Page Rule:
-         - URL Pattern: `blitzhub.sol/static/*`
+         - URL Pattern: `blitzhub.xyz/static/*`
          - Setting: Cache Level → Standard
          - Setting: Edge Cache TTL → 604800 seconds
          - Setting: Enable Brotli
@@ -87,11 +87,11 @@ Cloudflare's CDN reduces latency by caching content at ~300 Points of Presence (
     - Headers: `ETag` for cache validation.
     - Steps in Cloudflare dashboard:
       1. Create a Page Rule:
-         - URL Pattern: `blitzhub.sol/api/tokens*`
+         - URL Pattern: `blitzhub.xyz/api/tokens*`
          - Setting: Cache Level → Cache Everything
          - Setting: Edge Cache TTL → 10 seconds
       2. Create another Page Rule:
-         - URL Pattern: `blitzhub.sol/api/token/*`
+         - URL Pattern: `blitzhub.xyz/api/token/*`
          - Setting: Cache Level → Cache Everything
          - Setting: Edge Cache TTL → 10 seconds
 - **Cache Purge**:
@@ -102,12 +102,12 @@ Cloudflare's CDN reduces latency by caching content at ~300 Points of Presence (
     -H "X-Auth-Email: contact@klytic.com" \
     -H "X-Auth-Key: {api_key}" \
     -H "Content-Type: application/json" \
-    -d '{"files":["https://blitzhub.sol/static/app.js"]}'
+    -d '{"files":["https://blitzhub.xyz/static/app.js"]}'
     ```
   - Steps in Cloudflare dashboard:
     1. Go to Caching > Purge Cache.
     2. Select "Purge by URL".
-    3. Enter `https://blitzhub.sol/static/app.js`.
+    3. Enter `https://blitzhub.xyz/static/app.js`.
     4. Click "Purge".
 - **Smart Tiered Cache**:
   - Enable to reduce origin requests by caching at higher-tier PoPs.
@@ -199,7 +199,7 @@ Cloudflare's WAF protects against common threats and ensures secure traffic to B
   - **Encryption Mode**: `Full (Strict)` to ensure end-to-end encryption.
   - **TLS Version**: Minimum TLS 1.2, recommended TLS 1.3.
   - **HSTS**: Enabled with `max-age=31536000` (1 year) and `includeSubDomains`.
-  - **Certificate**: Cloudflare-managed Universal SSL certificate for `blitzhub.sol` and subdomains.
+  - **Certificate**: Cloudflare-managed Universal SSL certificate for `blitzhub.xyz` and subdomains.
   - Steps in Cloudflare dashboard:
     1. Go to SSL/TLS > Overview.
     2. Set Encryption Mode to "Full (Strict)".
@@ -212,7 +212,7 @@ Cloudflare's WAF protects against common threats and ensures secure traffic to B
     1. Go to Zero Trust > Access > Applications.
     2. Add Application:
        - Name: `BlitzHubAdmin`
-       - Domain: `blitzhub.sol/admin/*`, `blitzhub.sol/metrics/*`
+       - Domain: `blitzhub.xyz/admin/*`, `blitzhub.xyz/metrics/*`
        - Policy: Allow users with email domain `klytic.com` and require 2FA.
 
 ### 4. Load Balancing and Failover
@@ -239,14 +239,14 @@ Cloudflare's Load Balancer ensures high availability and optimal traffic distrib
   - Steps in Cloudflare dashboard:
     1. Go to Traffic > Load Balancing.
     2. Create Load Balancer:
-       - Hostname: `blitzhub.sol`
+       - Hostname: `blitzhub.xyz`
        - Pool: `FrontendPool`
        - Enable Geo-Steering
 - **Session Affinity**:
   - Enable cookie-based sticky sessions for WebSocket connections (`/ws/*`).
   - Steps in Cloudflare dashboard:
     1. Go to Traffic > Load Balancing.
-    2. Edit Load Balancer for `blitzhub.sol`.
+    2. Edit Load Balancer for `blitzhub.xyz`.
     3. Enable Session Affinity with `Cookie`.
 
 ### 5. Performance Optimizations
@@ -309,7 +309,7 @@ Cloudflare integrates with various components of BlitzHub for performance, secur
     -H "X-Auth-Email: contact@klytic.com" \
     -H "X-Auth-Key: {api_key}" \
     -H "Content-Type: application/json" \
-    -d '{"destination_conf":"http://eu-sec.blitzhub.sol:3100/loki/api/v1/push","fields":"RayID,ClientIP,EdgeStartTimestamp,RequestURI,ResponseStatus","name":"blitzhub-waf-logs"}'
+    -d '{"destination_conf":"http://eu-sec.blitzhub.xyz:3100/loki/api/v1/push","fields":"RayID,ClientIP,EdgeStartTimestamp,RequestURI,ResponseStatus","name":"blitzhub-waf-logs"}'
     ```
 - **Monitoring (EU-MON-01)**:
   - Metrics exported to Prometheus:
@@ -366,23 +366,23 @@ Cloudflare metrics are integrated into BlitzHub's monitoring stack for observabi
 After setup, verify Cloudflare configurations to ensure they work as expected.
 
 - **DNS Resolution**:
-  - Command: `dig eu-fe.blitzhub.sol`.
+  - Command: `dig eu-fe.blitzhub.xyz`.
   - Expected: Resolves to Cloudflare IPs (e.g., `104.21.0.0/16`).
 - **Caching**:
-  - Command: `curl -I https://blitzhub.sol/static/app.js`.
+  - Command: `curl -I https://blitzhub.xyz/static/app.js`.
   - Expected Header: `CF-Cache-Status: HIT`.
 - **WAF**:
-  - Simulate an XSS attack: `curl "https://blitzhub.sol/api/buy?data=<script>alert(1)</script>"`.
+  - Simulate an XSS attack: `curl "https://blitzhub.xyz/api/buy?data=<script>alert(1)</script>"`.
   - Expected: HTTP 403 (blocked by WAF).
 - **Rate Limiting**:
   - Simulate 60 requests to `/api/buy` in 10 seconds from a single IP.
   - Expected: After 50 requests, HTTP 429 (rate limit exceeded).
 - **GeoDNS**:
-  - From EU: `curl eu-fe.blitzhub.sol/health` → Should route to EU-FE-01.
-  - From NA: `curl na-fe.blitzhub.sol/health` → Should route to NA-FE-01.
+  - From EU: `curl eu-fe.blitzhub.xyz/health` → Should route to EU-FE-01.
+  - From NA: `curl na-fe.blitzhub.xyz/health` → Should route to NA-FE-01.
 - **Failover**:
   - Simulate A1.Flex failure in EU-FE-01.
-  - Command: `curl eu-fe.blitzhub.sol/health`.
+  - Command: `curl eu-fe.blitzhub.xyz/health`.
   - Expected: Traffic reroutes to E2.1.Micro VMs (EU-FE-E2-01 or EU-FE-E2-02).
 
 ### 9. Troubleshooting
@@ -390,7 +390,7 @@ Common issues and their resolutions:
 
 - **Challenge Loops**:
   - Issue: Users stuck in Cloudflare challenge loops (e.g., Under Attack Mode).
-  - Resolution: Check for conflicting WAF rules; use Cloudflare Trace (`curl https://blitzhub.sol/cdn-cgi/trace`) to debug.
+  - Resolution: Check for conflicting WAF rules; use Cloudflare Trace (`curl https://blitzhub.xyz/cdn-cgi/trace`) to debug.
 - **Cache Misses**:
   - Issue: Low cache hit ratio (`cf_cache_hit_ratio < 0.8`).
   - Resolution: Verify caching rules; ensure `Cache Everything` is enabled for `/api/tokens`.
@@ -399,7 +399,7 @@ Common issues and their resolutions:
   - Resolution: Increase threshold (e.g., to 75 req/10s) or whitelist IPs via Cloudflare dashboard.
 - **DNS Propagation Delays**:
   - Issue: DNS updates not reflecting.
-  - Resolution: Check TTL (should be 300s); use `dig +trace eu-fe.blitzhub.sol` to debug.
+  - Resolution: Check TTL (should be 300s); use `dig +trace eu-fe.blitzhub.xyz` to debug.
 
 ### 10. Maintenance and Updates
 Regular maintenance ensures Cloudflare configurations remain effective.
@@ -413,7 +413,7 @@ Regular maintenance ensures Cloudflare configurations remain effective.
     1. Go to DNS > DNSSEC in Cloudflare dashboard.
     2. Generate new keys.
     3. Update DS record at registrar.
-    4. Verify with `dig +dnssec blitzhub.sol`.
+    4. Verify with `dig +dnssec blitzhub.xyz`.
 - **Log Rotation**:
   - Logs sent to Loki (EU-SEC-01) have a 7-day retention policy.
   - Verify: `logcli query '{app="cloudflare"}' --limit=10`.
