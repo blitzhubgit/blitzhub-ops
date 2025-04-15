@@ -1,0 +1,114 @@
+- name: Configurar Servidores de Gerenciamento (MGMT)
+  hosts: eu-mgmt-01
+  become: yes
+  tasks:
+    - name: Instalar Python e pip (para Rasa)
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - python3
+        - python3-pip
+
+    - name: Instalar Rasa (3.6.0)
+      pip:
+        name: rasa
+        version: 3.6.0
+        executable: pip3
+
+    - name: Criar diretório para o bot Rasa
+      file:
+        path: /opt/rasa-bot
+        state: directory
+        mode: '0755'
+
+    - name: Configurar intents para o bot Rasa
+      copy:
+        content: |
+          version: "3.0"
+          intents:
+            - fees
+            - refund_status
+          responses:
+            utter_fees:
+              - text: "As taxas atuais são: No Fee (0%), Standard (0,25%), Premium (0,5%)."
+            utter_refund_status:
+              - text: "Verificando o status de reembolso... Por favor, aguarde."
+        dest: /opt/rasa-bot/data/intents.yml
+
+    - name: Treinar o modelo Rasa
+      shell: |
+        cd /opt/rasa-bot
+        rasa train --data data/intents.yml
+      args:
+        creates: /opt/rasa-bot/models
+
+    - name: Instalar ArgoCD (2.12.0)
+      shell: |
+        wget https://github.com/argoproj/argo-cd/releases/download/v2.12.0/argocd-linux-arm64
+        mv argocd-linux-arm64 /usr/local/bin/argocd
+        chmod +x /usr/local/bin/argocd
+      args:
+        creates: /usr/local/bin/argocd
+
+    - name: Configurar ArgoCD
+      shell: |
+        argocd app create blitzhub --repo https://github.com/klytic/blitzhub-ops --path infra --dest-server https://kubernetes.default.svc --dest-namespace default --sync-policy automated
+      args:
+        creates: /root/.argocd/.configured
+
+    - name: Instalar Telegraf (1.32.0) para bots sociais
+      shell: |
+        wget https://dl.influxdata.com/telegraf/releases/telegraf_1.32.0-1_arm64.deb
+        dpkg -i telegraf_1.32.0-1_arm64.deb
+      args:
+        creates: /usr/bin/telegraf
+
+    - name: Configurar Telegraf para bots sociais
+      copy:
+        content: |
+          [[outputs.file]]
+            files = ["/var/log/telegraf.log"]
+          [[inputs.telegram]]
+            token = "<TELEGRAM_TOKEN>"
+            chat_ids = ["<CHAT_ID>"]
+            message_limit = 500
+        dest: /etc/telegraf/telegraf.conf
+      notify: Reiniciar Telegraf
+
+    - name: Instalar K3s (1.30.0)
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.30.0+k3s1 sh -s - --disable traefik
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Configurar firewall (UFW) para MGMT
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - 80    # Dashboard Admin
+        - 443   # HTTPS
+
+    - name: Iniciar serviços
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      loop:
+        - k3s
+        - telegraf
+
+    - name: Iniciar Rasa
+      shell: |
+        cd /opt/rasa-bot
+        nohup rasa run --enable-api &
+      args:
+        executable: /bin/bash
+
+  handlers:
+    - name: Reiniciar Telegraf
+      systemd:
+        name: telegraf
+        state: restarted
