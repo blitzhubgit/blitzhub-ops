@@ -1,0 +1,69 @@
+- name: Configurar Load Balancers
+  hosts: localhost
+  connection: local
+  vars:
+    oci_config_file: "~/.oci/config"
+    accounts:
+      - { profile: "EU-FE-01", region: "eu-frankfurt-1", subnet_id: "ocid1.subnet.oc1..example" }
+      - { profile: "NA-FE-01", region: "us-ashburn-1", subnet_id: "ocid1.subnet.oc1..example" }
+      # Adicione outras contas conforme necessário
+    compartment_id: "ocid1.compartment.oc1..example"
+  tasks:
+    - name: Criar Flexible Load Balancer (10 Mbps) para cada conta
+      oci_network_load_balancer:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        compartment_id: "{{ compartment_id }}"
+        display_name: "BlitzHubLB{{ item.profile }}"
+        subnet_id: "{{ item.subnet_id }}"
+        is_private: false
+        state: present
+      loop: "{{ accounts }}"
+      register: lb_result
+
+    - name: Configurar Backend Set para HTTP/HTTPS
+      oci_network_load_balancer_backend_set:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        load_balancer_id: "{{ lb_result.results[loop_index].load_balancer.id }}"
+        name: "http-backend-set"
+        policy: "ROUND_ROBIN"
+        health_checker:
+          protocol: "HTTP"
+          port: 80
+          url_path: "/health"
+        backends:
+          - target_id: "ocid1.instance.oc1..example{{ loop_index }}"
+            port: 80
+        state: present
+      loop: "{{ accounts }}"
+      loop_control:
+        index_var: loop_index
+
+    - name: Configurar Listener para HTTP
+      oci_network_load_balancer_listener:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        load_balancer_id: "{{ lb_result.results[loop_index].load_balancer.id }}"
+        name: "http-listener"
+        port: 80
+        protocol: "HTTP"
+        default_backend_set_name: "http-backend-set"
+        state: present
+      loop: "{{ accounts }}"
+      loop_control:
+        index_var: loop_index
+
+    - name: Configurar Listener para WebSocket
+      oci_network_load_balancer_listener:
+        config_file_location: "{{ oci_config_file }}"
+        config_profile_name: "{{ item.profile }}"
+        load_balancer_id: "{{ lb_result.results[loop_index].load_balancer.id }}"
+        name: "websocket-listener"
+        port: 8900
+        protocol: "TCP"
+        default_backend_set_name: "http-backend-set"
+        state: present
+      loop: "{{ accounts }}"
+      loop_control:
+        index_var: loop_index
