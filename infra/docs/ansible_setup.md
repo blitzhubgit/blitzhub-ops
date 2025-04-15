@@ -1,10 +1,10 @@
 # Configuração com Ansible Tower
 
-Este documento detalha a configuração do Ansible Tower na VM `EU-MGMT-A1-01` e os playbooks para configurar as 45 VMs do projeto BlitzHub.
+Este documento detalha a configuração do Ansible Tower na VM `EU-MGMT-A1-01` e os playbooks para configurar os recursos do projeto BlitzHub.
 
 ## 1. Instalar o Ansible Tower
 
-O Ansible Tower será instalado na VM `EU-MGMT-A1-01` (conta EU-MGMT-01), que será usada para gerenciamento.
+O Ansible Tower está instalado na VM `EU-MGMT-A1-01` (conta EU-MGMT-01).
 
 ### Passos
 
@@ -22,7 +22,7 @@ O Ansible Tower será instalado na VM `EU-MGMT-A1-01` (conta EU-MGMT-01), que se
    pip3 install ansible-tower-cli
    ```
 
-3. Baixe e instale o Ansible Tower (versão 3.8.5 como exemplo):
+3. Baixe e instale o Ansible Tower (versão 3.8.5):
 
    ```bash
    wget https://releases.ansible.com/ansible-tower/setup/ansible-tower-setup-3.8.5-1.tar.gz
@@ -54,18 +54,13 @@ O Ansible Tower será instalado na VM `EU-MGMT-A1-01` (conta EU-MGMT-01), que se
    ./setup.sh
    ```
 
-   - O processo pode levar alguns minutos. O Ansible Tower estará disponível na porta 443.
-
 6. Acesse o Ansible Tower:
 
-   - Abra o navegador e acesse `https://<IP_PÚBLICO>`.
-   - Faça login:
-     - Usuário: `admin`.
-     - Senha: `BlitzHub2025!`.
+   - URL: `https://<IP_PÚBLICO>`.
+   - Usuário: `admin`.
+   - Senha: `BlitzHub2025!`.
 
 ## 2. Configurar o Inventário
-
-### Passos
 
 1. **Criar o Inventário**:
 
@@ -75,28 +70,16 @@ O Ansible Tower será instalado na VM `EU-MGMT-A1-01` (conta EU-MGMT-01), que se
 
 2. **Adicionar Grupos e Hosts**:
 
-   - Crie grupos para cada conta:
+   - Crie grupos para cada conta: `eu-fe-01`, `na-fe-01`, ..., `eu-mgmt-01`.
+   - Adicione as VMs como hosts em cada grupo (consulte `vm_inventory.md`).
+   - Variáveis:
 
-     - `eu-fe-01`, `na-fe-01`, ..., `eu-mgmt-01`.
+     ```
+     ansible_user: ubuntu
+     ansible_ssh_private_key_file: /root/.ssh/blitzhub_key
+     ```
 
-   - Adicione as VMs como hosts em cada grupo. Exemplo para `eu-fe-01`:
-
-     - Host: `EU-FE-A1-01`
-
-       - Endereço: `<IP_PÚBLICO_1>` (consulte `vm_inventory.md`).
-
-       - Variáveis:
-
-         ```
-         ansible_user: ubuntu
-         ansible_ssh_private_key_file: /root/.ssh/blitzhub_key
-         ```
-
-     - Host: `EU-FE-E2-01`, `EU-FE-E2-02` (mesmo processo).
-
-   - Repita para todas as 45 VMs.
-
-3. **Copiar a Chave SSH para o Ansible Tower**:
+3. **Copiar a Chave SSH**:
 
    - Conecte-se à VM `EU-MGMT-A1-01`:
 
@@ -105,9 +88,7 @@ O Ansible Tower será instalado na VM `EU-MGMT-A1-01` (conta EU-MGMT-01), que se
      sudo nano /root/.ssh/blitzhub_key
      ```
 
-   - Cole o conteúdo da chave privada (`~/.ssh/blitzhub_key` do seu computador local).
-
-   - Ajuste as permissões:
+   - Cole a chave privada e ajuste permissões:
 
      ```bash
      sudo chmod 600 /root/.ssh/blitzhub_key
@@ -117,9 +98,7 @@ O Ansible Tower será instalado na VM `EU-MGMT-A1-01` (conta EU-MGMT-01), que se
 
 ### 3.1. Playbook: Configuração da Rede (`setup_network.yml`)
 
-Este playbook configura a VCN na conta EU-NET-01 e o Remote VCN Peering para conectar todas as contas.
-
-#### Conteúdo do Playbook
+Configura a VCN e Remote Peering na conta EU-NET-01.
 
 ```yaml
 - name: Configurar VCN e Remote Peering na Conta EU-NET-01
@@ -176,20 +155,9 @@ Este playbook configura a VCN na conta EU-NET-01 e o Remote VCN Peering para con
         - { name: "Subnet-EU-MGMT-01", cidr: "10.0.13.0/24" }
 ```
 
-#### Notas
-
-- Substitua `<TENANCY_OCID>`, `<USER_OCID>`, `<FINGERPRINT>` e configure a chave privada da API da Oracle Cloud (`private_key_path`).
-- Para configurar a API Key:
-  - Vá para **Identity & Security &gt; Users** na conta EU-NET-01.
-  - Selecione o usuário e clique em "Add API Key".
-  - Faça upload de uma chave pública ou gere uma nova.
-  - Copie a chave privada para `/root/.oci/private_key.pem` na VM `EU-MGMT-A1-01`.
-
 ### 3.2. Playbook: Configuração de VCNs Locais (`setup_local_vcn.yml`)
 
-Este playbook cria VCNs locais em todas as contas (exceto EU-NET-01) e configura o Remote VCN Peering.
-
-#### Conteúdo do Playbook
+Cria VCNs locais em todas as contas (exceto EU-NET-01) e configura Remote VCN Peering.
 
 ```yaml
 - name: Configurar VCN Local e Peering
@@ -262,16 +230,9 @@ Este playbook cria VCNs locais em todas as contas (exceto EU-NET-01) e configura
         oci network subnet create --cidr-block {{ subnet_cidr }} --display-name LocalSubnet-{{ inventory_hostname | upper }} --vcn-id {{ local_vcn_result.stdout | from_json | json_query('data.id') }} --compartment-id {{ tenancy_ocid }}
 ```
 
-#### Notas
-
-- Configure as variáveis de ambiente (`TENANCY_OCID`, `USER_OCID`, `FINGERPRINT`, `REGION`) no Ansible Tower para cada conta.
-- O Remote VCN Peering requer passos manuais adicionais (como estabelecer a conexão entre LPG e RPC), que devem ser documentados separadamente ou automatizados com scripts adicionais.
-
 ### 3.3. Playbook: Configuração das VMs (`setup_vm.yml`)
 
-Este playbook instala pacotes básicos, configura o firewall e instala serviços como Node.js, Redis, e o HashiCorp Vault (para EU-SEC-01).
-
-#### Conteúdo do Playbook
+Instala pacotes básicos, configura o firewall e serviços como Node.js, Redis, e HashiCorp Vault.
 
 ```yaml
 - name: Configurar VMs para BlitzHub
@@ -403,9 +364,7 @@ Este playbook instala pacotes básicos, configura o firewall e instala serviços
 
 ### 3.4. Playbook: Configuração do Banco de Dados (`setup_db.yml`)
 
-Este playbook configura o Autonomous Database e as wallets.
-
-#### Conteúdo do Playbook
+Configura o Autonomous Database e cria tabelas.
 
 ```yaml
 - name: Configurar Autonomous Database
@@ -437,6 +396,19 @@ Este playbook configura o Autonomous Database e as wallets.
           graduated NUMBER(1) DEFAULT 0 CHECK (graduated IN (0, 1))
         );
         CREATE INDEX idx_created_at ON tokens(created_at);
+        CREATE TABLE fees (
+          fee_id VARCHAR2(36) PRIMARY KEY,
+          mint VARCHAR2(44),
+          wallet VARCHAR2(44),
+          platform_fee NUMBER,
+          gas_fee NUMBER,
+          fee_type VARCHAR2(10) CHECK (fee_type IN ('no_fee', 'standard', 'premium')),
+          priority VARCHAR2(10) CHECK (priority IN ('low', 'medium', 'high')),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          status VARCHAR2(20) DEFAULT 'pending' CHECK (status IN ('pending', 'refunded')),
+          FOREIGN KEY (mint) REFERENCES tokens(mint)
+        );
+        CREATE INDEX idx_mint_wallet ON fees(mint, wallet);
         EOF
       vars:
         db_user: admin
@@ -458,34 +430,273 @@ Este playbook configura o Autonomous Database e as wallets.
           eu-mgmt-01: "admindbeumgmt01_high"
 ```
 
+### 3.5. Playbook: Configuração dos Load Balancers (`setup_load_balancer.yml`)
+
+Configura os Flexible e Network Load Balancers.
+
+```yaml
+- name: Configurar Load Balancers
+  hosts: all
+  become: yes
+  vars:
+    tenancy_ocid: "{{ lookup('env', 'TENANCY_OCID') }}"
+    user_ocid: "{{ lookup('env', 'USER_OCID') }}"
+    fingerprint: "{{ lookup('env', 'FINGERPRINT') }}"
+    private_key_path: "/root/.oci/private_key.pem"
+    region: "{{ lookup('env', 'REGION') }}"
+    subnet_id: "{{ subnet_id_map[inventory_hostname] }}"
+    subnet_id_map:
+      eu-fe-01: "<SUBNET_OCID_EU-FE-01>"
+      na-fe-01: "<SUBNET_OCID_NA-FE-01>"
+      sa-fe-01: "<SUBNET_OCID_SA-FE-01>"
+      af-fe-01: "<SUBNET_OCID_AF-FE-01>"
+      as-fe-01: "<SUBNET_OCID_AS-FE-01>"
+      au-fe-01: "<SUBNET_OCID_AU-FE-01>"
+      me-fe-01: "<SUBNET_OCID_ME-FE-01>"
+      eu-be-01: "<SUBNET_OCID_EU-BE-01>"
+      na-be-01: "<SUBNET_OCID_NA-BE-01>"
+      eu-sec-01: "<SUBNET_OCID_EU-SEC-01>"
+      eu-net-01: "<SUBNET_OCID_EU-NET-01>"
+      eu-mon-01: "<SUBNET_OCID_EU-MON-01>"
+      eu-sol-01: "<SUBNET_OCID_EU-SOL-01>"
+      as-sol-01: "<SUBNET_OCID_AS-SOL-01>"
+      eu-mgmt-01: "<SUBNET_OCID_EU-MGMT-01>"
+  tasks:
+    - name: Instalar o OCI CLI
+      shell: |
+        bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install.sh)" -- --accept-all-defaults
+      args:
+        executable: /bin/bash
+
+    - name: Configurar o OCI CLI
+      copy:
+        content: |
+          [DEFAULT]
+          user={{ user_ocid }}
+          fingerprint={{ fingerprint }}
+          key_file={{ private_key_path }}
+          tenancy={{ tenancy_ocid }}
+          region={{ region }}
+        dest: /root/.oci/config
+        mode: '0600'
+
+    - name: Criar Flexible Load Balancer
+      shell: |
+        oci lb load-balancer create --display-name {{ inventory_hostname | upper }}-LB-Flexible \
+          --shape-name flexible --shape-details '{"maximumBandwidthInMbps": 10, "minimumBandwidthInMbps": 10}' \
+          --compartment-id {{ tenancy_ocid }} --subnet-ids '["{{ subnet_id }}"]' --is-private false
+      register: lb_result
+
+    - name: Criar Backend Set
+      shell: |
+        oci lb backend-set create --load-balancer-id {{ lb_result.stdout | from_json | json_query('data.id') }} \
+          --name {{ inventory_hostname | upper }}-BackendSet --policy WEIGHTED_ROUND_ROBIN \
+          --health-checker-protocol HTTP --health-checker-url-path /health \
+          --health-checker-interval-in-ms 10000 --health-checker-timeout-in-ms 5000 \
+          --health-checker-retries 3
+
+    - name: Criar Network Load Balancer
+      shell: |
+        oci nlb network-load-balancer create --display-name {{ inventory_hostname | upper }}-LB-Network \
+          --compartment-id {{ tenancy_ocid }} --subnet-id {{ subnet_id }} --is-private false
+      register: nlb_result
+
+    - name: Criar WebSocket Backend Set
+      shell: |
+        oci nlb backend-set create --network-load-balancer-id {{ nlb_result.stdout | from_json | json_query('data.id') }} \
+          --name {{ inventory_hostname | upper }}-WebSocketSet --policy LEAST_CONNECTIONS \
+          --health-checker-protocol TCP --health-checker-port 443 \
+          --health-checker-interval-in-ms 10000 --health-checker-timeout-in-ms 5000 \
+          --health-checker-retries 3
+```
+
+**Nota**: Substitua `<SUBNET_OCID_XX>` pelos OCIDs reais das subnets, obtidos no painel da Oracle Cloud.
+
+### 3.6. Playbook: Configuração do Object Storage (`setup_object_storage.yml`)
+
+Cria os buckets `AssetsBlitzHubXX` e `LogsBlitzHubXX`.
+
+```yaml
+- name: Configurar Object Storage
+  hosts: all
+  become: yes
+  vars:
+    tenancy_ocid: "{{ lookup('env', 'TENANCY_OCID') }}"
+    user_ocid: "{{ lookup('env', 'USER_OCID') }}"
+    fingerprint: "{{ lookup('env', 'FINGERPRINT') }}"
+    private_key_path: "/root/.oci/private_key.pem"
+    region: "{{ lookup('env', 'REGION') }}"
+    bucket_prefix: "{{ bucket_prefix_map[inventory_hostname] }}"
+    bucket_prefix_map:
+      eu-fe-01: "EU"
+      na-fe-01: "NA"
+      sa-fe-01: "SA"
+      af-fe-01: "AF"
+      as-fe-01: "AS"
+      au-fe-01: "AU"
+      me-fe-01: "ME"
+      eu-be-01: "EU"
+      na-be-01: "NA"
+      eu-sec-01: "EU"
+      eu-net-01: "EU"
+      eu-mon-01: "EU"
+      eu-sol-01: "EU"
+      as-sol-01: "AS"
+      eu-mgmt-01: "EU"
+  tasks:
+    - name: Instalar o OCI CLI
+      shell: |
+        bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install.sh)" -- --accept-all-defaults
+      args:
+        executable: /bin/bash
+
+    - name: Configurar o OCI CLI
+      copy:
+        content: |
+          [DEFAULT]
+          user={{ user_ocid }}
+          fingerprint={{ fingerprint }}
+          key_file={{ private_key_path }}
+          tenancy={{ tenancy_ocid }}
+          region={{ region }}
+        dest: /root/.oci/config
+        mode: '0600'
+
+    - name: Criar Bucket AssetsBlitzHub
+      shell: |
+        oci os bucket create --name AssetsBlitzHub{{ bucket_prefix }} --compartment-id {{ tenancy_ocid }} --public-access-type ObjectRead
+      register: assets_bucket_result
+
+    - name: Criar Bucket LogsBlitzHub
+      shell: |
+        oci os bucket create --name LogsBlitzHub{{ bucket_prefix }} --compartment-id {{ tenancy_ocid }}
+      register: logs_bucket_result
+
+    - name: Configurar Política de Retenção para Logs
+      shell: |
+        oci os object-lifecycle-policy put --bucket-name LogsBlitzHub{{ bucket_prefix }} \
+          --items '[{"name":"LogsRetention","action":"DELETE","time-amount":30,"time-unit":"DAYS"}]'
+```
+
+### 3.7. Playbook: Configuração de Security Lists e NSGs (`setup_network_security.yml`)
+
+Configura Security Lists e NSGs.
+
+```yaml
+- name: Configurar Security Lists e NSGs
+  hosts: all
+  become: yes
+  vars:
+    tenancy_ocid: "{{ lookup('env', 'TENANCY_OCID') }}"
+    user_ocid: "{{ lookup('env', 'USER_OCID') }}"
+    fingerprint: "{{ lookup('env', 'FINGERPRINT') }}"
+    private_key_path: "/root/.oci/private_key.pem"
+    region: "{{ lookup('env', 'REGION') }}"
+    subnet_id: "{{ subnet_id_map[inventory_hostname] }}"
+    subnet_id_map:
+      eu-fe-01: "<SUBNET_OCID_EU-FE-01>"
+      na-fe-01: "<SUBNET_OCID_NA-FE-01>"
+      sa-fe-01: "<SUBNET_OCID_SA-FE-01>"
+      af-fe-01: "<SUBNET_OCID_AF-FE-01>"
+      as-fe-01: "<SUBNET_OCID_AS-FE-01>"
+      au-fe-01: "<SUBNET_OCID_AU-FE-01>"
+      me-fe-01: "<SUBNET_OCID_ME-FE-01>"
+      eu-be-01: "<SUBNET_OCID_EU-BE-01>"
+      na-be-01: "<SUBNET_OCID_NA-BE-01>"
+      eu-sec-01: "<SUBNET_OCID_EU-SEC-01>"
+      eu-net-01: "<SUBNET_OCID_EU-NET-01>"
+      eu-mon-01: "<SUBNET_OCID_EU-MON-01>"
+      eu-sol-01: "<SUBNET_OCID_EU-SOL-01>"
+      as-sol-01: "<SUBNET_OCID_AS-SOL-01>"
+      eu-mgmt-01: "<SUBNET_OCID_EU-MGMT-01>"
+    ingress_rules: "{{ ingress_rules_map[inventory_hostname] }}"
+    ingress_rules_map:
+      eu-fe-01: "80,443"
+      na-fe-01: "80,443"
+      sa-fe-01: "80,443"
+      af-fe-01: "80,443"
+      as-fe-01: "80,443"
+      au-fe-01: "80,443"
+      me-fe-01: "80,443"
+      eu-be-01: "3000,6379,5672"
+      na-be-01: "3000,6379,5672"
+      eu-sec-01: "8200"
+      eu-net-01: "80,443"
+      eu-mon-01: "3000"
+      eu-sol-01: "8899"
+      as-sol-01: "8899"
+      eu-mgmt-01: "80,443"
+  tasks:
+    - name: Instalar o OCI CLI
+      shell: |
+        bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install.sh)" -- --accept-all-defaults
+      args:
+        executable: /bin/bash
+
+    - name: Configurar o OCI CLI
+      copy:
+        content: |
+          [DEFAULT]
+          user={{ user_ocid }}
+          fingerprint={{ fingerprint }}
+          key_file={{ private_key_path }}
+          tenancy={{ tenancy_ocid }}
+          region={{ region }}
+        dest: /root/.oci/config
+        mode: '0600'
+
+    - name: Criar Security List
+      shell: |
+        oci network security-list create --compartment-id {{ tenancy_ocid }} \
+          --vcn-id <VCN_OCID> --display-name SecurityList-{{ inventory_hostname | upper }} \
+          --egress-security-rules '[{"destination": "0.0.0.0/0", "protocol": "all"}]' \
+          --ingress-security-rules '[{{"source": "0.0.0.0/0", "protocol": "6", "tcp-options": {{"destination-port-range": {{"min": port, "max": port}}}}}} for port in {{ ingress_rules.split(',') }}]'
+      register: security_list_result
+
+    - name: Criar NSG
+      shell: |
+        oci network nsg create --compartment-id {{ tenancy_ocid }} \
+          --display-name NSG-{{ inventory_hostname | upper }}
+      register: nsg_result
+
+    - name: Adicionar Regras ao NSG
+      shell: |
+        oci network nsg rules add --nsg-id {{ nsg_result.stdout | from_json | json_query('data.id') }} \
+          --security-rules '[{{"direction": "INGRESS", "protocol": "6", "source": "0.0.0.0/0", "tcp-options": {{"destination-port-range": {{"min": port, "max": port}}}}}} for port in {{ ingress_rules.split(',') }}]'
+```
+
 ## 4. Executar os Playbooks no Ansible Tower
 
 1. **Criar um Projeto**:
 
    - No Ansible Tower, vá para **Projects** e clique em "Add".
    - Nome: `BlitzHubPlaybooks`.
-   - SCM Type: Manual (ou configure um repositório Git).
-   - Copie os playbooks (`setup_network.yml`, `setup_local_vcn.yml`, `setup_vm.yml`, `setup_db.yml`) para o diretório do projeto.
+   - SCM Type: Manual.
+   - Copie os playbooks para o diretório do projeto.
 
 2. **Criar Job Templates**:
 
-   - Vá para **Templates** e crie um Job Template para cada playbook:
-     - **Setup Network**:
-       - Inventory: `BlitzHubInventory`.
-       - Playbook: `setup_network.yml`.
-       - Limit: `eu-net-01`.
-     - **Setup Local VCN**:
-       - Inventory: `BlitzHubInventory`.
-       - Playbook: `setup_local_vcn.yml`.
-       - Limit: `all:!eu-net-01`.
-     - **Setup VMs**:
-       - Inventory: `BlitzHubInventory`.
-       - Playbook: `setup_vm.yml`.
-       - Limit: `all`.
-     - **Setup Database**:
-       - Inventory: `BlitzHubInventory`.
-       - Playbook: `setup_db.yml`.
-       - Limit: `all:!eu-net-01:!eu-sec-01`.
+   - **Setup Network**:
+     - Playbook: `setup_network.yml`.
+     - Limit: `eu-net-01`.
+   - **Setup Local VCN**:
+     - Playbook: `setup_local_vcn.yml`.
+     - Limit: `all:!eu-net-01`.
+   - **Setup VMs**:
+     - Playbook: `setup_vm.yml`.
+     - Limit: `all`.
+   - **Setup Database**:
+     - Playbook: `setup_db.yml`.
+     - Limit: `all:!eu-net-01:!eu-sec-01`.
+   - **Setup Load Balancer**:
+     - Playbook: `setup_load_balancer.yml`.
+     - Limit: `all`.
+   - **Setup Object Storage**:
+     - Playbook: `setup_object_storage.yml`.
+     - Limit: `all`.
+   - **Setup Network Security**:
+     - Playbook: `setup_network_security.yml`.
+     - Limit: `all`.
 
 3. **Executar os Jobs**:
 
