@@ -1,5 +1,4 @@
-
-- name: Configurar VMs com Pacotes Básicos
+- name: Configurar Ajustes Básicos para Todas as VMs
   hosts: all
   become: yes
   tasks:
@@ -8,25 +7,58 @@
         update_cache: yes
         upgrade: dist
 
-    - name: Instalar pacotes básicos
+    - name: Instalar pacotes essenciais
       apt:
-        name: "{{ packages }}"
+        name: "{{ item }}"
         state: present
-      vars:
-        packages:
-          - curl
-          - git
-          - ufw
+      loop:
+        - curl
+        - git
+        - ufw
+        - htop
 
-    - name: Configurar firewall (UFW)
+    - name: Instalar Node Exporter (1.8.0) para monitoramento
+      shell: |
+        wget https://github.com/prometheus/node_exporter/releases/download/v1.8.0/node_exporter-1.8.0.linux-arm64.tar.gz
+        tar xvf node_exporter-1.8.0.linux-arm64.tar.gz
+        mv node_exporter-1.8.0.linux-arm64/node_exporter /usr/local/bin/
+      args:
+        creates: /usr/local/bin/node_exporter
+
+    - name: Criar serviço Systemd para Node Exporter
+      copy:
+        content: |
+          [Unit]
+          Description=Node Exporter
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/node-exporter.service
+      notify: Reiniciar Node Exporter
+
+    - name: Configurar UFW (permitir SSH)
       ufw:
         rule: allow
-        port: "{{ item }}"
-      loop:
-        - 22    # SSH (para todas as VMs)
-        - 80    # HTTP
-        - 443   # HTTPS
+        port: 22
 
-    - name: Habilitar o UFW
+    - name: Habilitar UFW
       ufw:
         state: enabled
+
+    - name: Iniciar Node Exporter
+      systemd:
+        name: node-exporter
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: Reiniciar Node Exporter
+      systemd:
+        name: node-exporter
+        state: restarted
