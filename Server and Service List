@@ -1,257 +1,365 @@
-# Infraestrutura Completa VCN Única para BlitzHub
+# BlitzHub Server and Service List (Updated with Detailed Context)
 
-Este documento detalha a infraestrutura do **BlitzHub** com **15 contas Oracle Free Tier**, usando uma **VCN única** (`10.0.0.0/16`) gerenciada por **EU-NET-01**, com **subnets segregadas** para funções (Frontend, Backend, Solana, Segurança, Monitoramento, Gerenciamento, Helius Failover, Logs, Gestão de Rede), configurável via **GUI do Oracle Cloud**. A estrutura é profissional, otimizada para **latência de \~1-2ms** na região, com **segurança estática** e monitoramento robusto.
+**Infrastructure**: VCN 10.0.0.0/16, 15 Oracle Free Tier accounts, 9 subnets, 45 VMs (15 A1.Flex, 30 E2.1.Micro), 18 Load Balancers (15 Flexible, 3 Network)
 
-## 1. Visão Geral
+**Purpose**: Token maturation platform on Solana, Web3 authentication (Phantom/Solflare), ~1000 concurrent users, ~25,000 req/s Frontend, ~10,000 req/s Backend, ~70,000 tx/h Solana
 
-- **Conta Principal**: EU-NET-01 (Zabbix, UFW).
-- **VCN**: `10.0.0.0/16`, hospedada em EU-NET-01.
-- **Contas**: 15 (5 Frontend, 2 Backend, 2 Solana, 1 Segurança, 1 Monitoramento, 1 Gerenciamento, 1 Helius Failover, 1 Logs, 1 Gestão de Rede).
-- **Subnets**: 9 (públicas/privadas).
-- **Load Balancers**: 15 Flexible, 3 Network.
-- **Latência**: \~1-2ms na região, \~5-10ms entre regiões.
-- **Armazenamento**:
-  - File Storage: 400 GB (EU-LOG-01, \~294 GB logs, 100 GB snapshots, 7 dias).
-  - Block Volumes: 3 TB usados (15 contas x 200 GB), de \~9 TB disponíveis.
-- **Performance**:
-  - Frontend: \~25.000 req/s.
-  - Backend: \~10.000 req/s.
-  - Solana: \~70.000 tx/hora.
-  - Helius Failover: \~5000 tx/hora.
-  - Usuários: \~1000 simultâneos.
-- **SLOs**: &lt;50ms APIs, &lt;25ms assets, &lt;100ms failover.
+**Latency**: ~1-2ms intra-region, SLOs: <50ms APIs, <25ms assets
 
-## 2. Estrutura de Rede
+## 1. Frontend (5 accounts: EU-FE-01, NA-FE-01, SA-FE-01, AS-FE-01, AU-FE-01)
 
-### VCN
+- **Subnet**: 10.0.1.0/24 (public)
+- **VMs per account**:
+  - **A1.Flex** (4 OCPUs, 24 GB RAM):
+    - **React (18.3.0)**:
+      - **Description**: Framework JavaScript para interface web interativa, renderiza dashboards e formulários de token (~100ms renderização).
+      - **Context**: Exibe dados de transações (de Oracle ADB via Fastify), interage com Solana (Web3.js para auth). Usa Vite para build, Tailwind CSS para estilo, Recharts para gráficos, react-joyride para tutoriais. Envia logs ao Loki via Promtail.
+      - **Example**: Usuário acessa dashboard, visualiza saldo de tokens, clica em "Buy", dispara chamada à API Fastify (/api/v1/buy).
+    - **Fastify (4.28.0)**:
+      - **Description**: Servidor Node.js para APIs Frontend (/api/tokens, /api/form), atua como proxy para Backend (~25,000 req/s).
+      - **Context**: Proxy de requisições ao Backend (10.0.2.0/24, TCP 3000), usa Redis para cache de respostas. Integra com ModSecurity (WAF) e Nginx (reverse proxy).
+      - **Example**: Requisição GET /api/tokens lista tokens disponíveis, cached em Redis (TTL 1h).
+    - **Vite (5.4.0)**:
+      - **Description**: Ferramenta de build para React, reduz tempo de compilação (~2s build).
+      - **Context**: Compila código React para produção, integrado com Tailwind CSS e Recharts. Gerenciado por PM2.
+      - **Example**: Desenvolvedor executa "vite build", gera bundle otimizado para deploy via ArgoCD.
+    - **Tailwind CSS (3.4.0)**:
+      - **Description**: Framework CSS para estilização rápida (<1s), usado em dashboards e formulários.
+      - **Context**: Aplicado via Vite, estiliza gráficos (Recharts) e tutoriais (react-joyride).
+      - **Example**: Estiliza botão "Mint Token" com classes Tailwind (bg-blue-500 hover:bg-blue-700).
+    - **Recharts (2.12.0)**:
+      - **Description**: Biblioteca para gráficos interativos (<50ms), exibe métricas de transações e tokens.
+      - **Context**: Consome dados de Oracle ADB via Fastify, estilizado por Tailwind CSS.
+      - **Example**: Gráfico de linha mostra volume de transações por hora, atualizado via API /api/v1/stats.
+    - **react-joyride (2.8.0)**:
+      - **Description**: Biblioteca para tutoriais interativos, melhora retenção (+20%).
+      - **Context**: Guia usuários em fluxos (ex.: auth Web3, minting). Integra com Tailwind CSS para estilo.
+      - **Example**: Tutorial orienta usuário a conectar carteira Phantom para autenticação.
+    - **Nginx (1.24.0)**:
+      - **Description**: Reverse proxy, gerencia tráfego HTTP (port 80, cache TTL 10s).
+      - **Context**: Roteia requisições para React (port 80) e Fastify (port 3000). Integra com ModSecurity para segurança.
+      - **Example**: Requisição para /dashboard é roteada ao React, com cache de 10s.
+    - **ModSecurity (3.0.12)**:
+      - **Description**: WAF para proteção de APIs (~500 req/s, OWASP rules).
+      - **Context**: Filtra requisições maliciosas (ex.: SQL injection). Logs enviados ao Loki via Promtail, monitorados por Wazuh.
+      - **Example**: Bloqueia tentativa de XSS em /api/form, registra evento no Loki.
+    - **Promtail**:
+      - **Description**: Agente para coleta de logs, envia ao Loki (TCP 3100).
+      - **Context**: Coleta logs de React, Fastify, Nginx, ModSecurity. Integra com Fluentd (EU-LOG-01) para agregação.
+      - **Example**: Log de erro 500 em /api/tokens é enviado ao Loki, visualizado no Grafana.
+    - **PM2**:
+      - **Description**: Gerenciador de processos Node.js, mantém Fastify e React ativos.
+      - **Context**: Reinicia processos em falhas, monitorado por Prometheus (métricas pm2_process_cpu).
+      - **Example**: Reinicia Fastify após crash, mantém ~25,000 req/s.
+  - **E2.1.Micro 1** (1 OCPU, 1 GB RAM):
+    - **Redis (7.2.0)**:
+      - **Description**: Cache in-memory (~100,000 ops/s, allkeys-lru), armazena respostas de APIs e sessões.
+      - **Context**: Usado por Fastify para cache (TTL 1h). Integra com Backend e Solana.
+      - **Example**: Cacheia resposta de GET /api/tokens, reduzindo latência de ~10ms para ~1ms.
+  - **E2.1.Micro 2**:
+    - **MinIO**:
+      - **Description**: Armazenamento de objetos para assets estáticos (port 9000, 10 GB).
+      - **Context**: Armazena imagens, CSS, JS. Acessado por Nginx, backups gerenciados por Ansible.
+      - **Example**: Serve logo da plataforma via URL /assets/logo.png.
+- **Load Balancer**: Flexible (/health, Weighted Round Robin)
+- **Integration**:
+  - Sends requests to Backend (TCP 3000, 10.0.2.0/24), Solana (TCP 8899, 10.0.3.0/24)
+  - Publishes messages to RabbitMQ (buy_queue, TCP 5672, 10.0.5.0/24)
 
-- **Nome**: BlitzHubVCN
-- **CIDR**: `10.0.0.0/16`
-- **Conta**: EU-NET-01
-- **GUI**: Networking &gt; Virtual Cloud Networks &gt; Create VCN
+## 2. Backend (2 accounts: EU-BE-01, NA-BE-01)
 
-### Subnets
+- **Subnet**: 10.0.2.0/24 (public)
+- **VMs per account**:
+  - **A1.Flex**:
+    - **Fastify (4.28.0)**:
+      - **Description**: Servidor Node.js para APIs críticas (/api/v1/create, /api/v1/buy, /api/v1/auth, ~10,000 req/s).
+      - **Context**: Consulta Oracle ADB (TCP 1521), verifica auth Web3 (@solana/web3.js), publica mensagens ao RabbitMQ (buy_queue). Monitorado por OpenTelemetry, logs ao Loki.
+      - **Example**: POST /api/v1/buy registra transação, envia à Solana via RabbitMQ.
+    - **Promtail**:
+      - **Description**: Coleta logs de Fastify e PM2, envia ao Loki (TCP 3100).
+      - **Context**: Integra com Fluentd (EU-LOG-01) e Wazuh (EU-SEC-01) para análise de segurança.
+      - **Example**: Log de falha em /api/v1/auth é enviado ao Loki, analisado por Wazuh.
+    - **PM2**:
+      - **Description**: Gerencia processos Fastify, garante alta disponibilidade.
+      - **Context**: Monitorado por Prometheus, reinicia Fastify em falhas.
+      - **Example**: Mantém API /api/v1/create ativa durante pico de ~10,000 req/s.
+  - **E2.1.Micro 1**:
+    - **Redis (7.2.0)**:
+      - **Description**: Cache para consultas Oracle ADB (~100,000 ops/s, TTL 1h).
+      - **Context**: Usado por Fastify para reduzir latência. Integra com RabbitMQ para mensagens.
+      - **Example**: Cacheia resultado de SELECT COUNT(*) FROM transactions, evita consultas repetidas.
+  - **E2.1.Micro 2**:
+    - **MinIO**:
+      - **Description**: Armazena backups do Oracle ADB e dados históricos (port 9000, 10 GB).
+      - **Context**: Gerenciado por Ansible, acessado por Fastify para relatórios.
+      - **Example**: Armazena backup diário de transações em /backups/transactions.sql.
+- **Database**:
+  - **Oracle ADB (Autonomous Transaction Processing)**:
+    - **Description**: Banco relacional gerenciado (40 GB per account, port 1521), armazena usuários e transações.
+    - **Context**: Hospedado na OCI, acessado por Fastify, cacheado por Redis. Integra com Hyperledger Fabric para permissões off-chain. Monitorado por OCI Metrics.
+    - **Example**: Query SELECT * FROM transactions WHERE user_key = :key retorna histórico de compras.
+- **Load Balancer**: Flexible (/health, Weighted Round Robin)
+- **Integration**:
+  - Receives requests from Frontend (TCP 3000), sends to Solana (TCP 8899)
+  - Consumes RabbitMQ messages (buy_queue, TCP 5672)
+  - Verifies Web3 auth (Phantom/Solflare signatures via @solana/web3.js)
 
-| Função | Subnet CIDR | Tipo | Contas |
-| --- | --- | --- | --- |
-| Frontend | 10.0.1.0/24 | Pública | EU-FE-01, NA-FE-01, SA-FE-01, AS-FE-01, AU-FE-01 |
-| Backend | 10.0.2.0/24 | Pública | EU-BE-01, NA-BE-01 |
-| Solana | 10.0.3.0/24 | Pública | EU-SOL-01, AS-SOL-01 |
-| Segurança | 10.0.4.0/24 | Privada | EU-SEC-01 |
-| Monitoramento | 10.0.5.0/24 | Privada | EU-MON-01 |
-| Gerenciamento | 10.0.6.0/24 | Privada | EU-MGMT-01 |
-| Helius Failover | 10.0.7.0/24 | Pública | EU-FAIL-01 |
-| Logs | 10.0.8.0/24 | Pública | EU-LOG-01 |
-| Gestão de Rede | 10.0.9.0/24 | Privada | EU-NET-01 |
+## 3. Solana (2 accounts: EU-SOL-01, AS-SOL-01)
 
-- **GUI**: Networking &gt; Subnets &gt; Create Subnet
-- **Configuração**:
-  - **Públicas**: Internet Gateway para Load Balancers.
-  - **Privadas**: NAT Gateway para Egress, sem Ingress externo.
+- **Subnet**: 10.0.3.0/24 (public)
+- **VMs per account**:
+  - **A1.Flex**:
+    - **Solana Validator (Solana CLI 1.18.0)**:
+      - **Description**: Processa transações Solana (~35,000 tx/h, port 8899).
+      - **Context**: Usa Rust/Anchor para smart contracts. Integra com Backend (via @solana/web3.js) e RabbitMQ (buy_queue). Logs ao Loki via Promtail.
+      - **Example**: Valida transação de compra de 100 tokens, confirmada em ~10ms.
+    - **Rust (1.80.0)**:
+      - **Description**: Linguagem para smart contracts Solana.
+      - **Context**: Usado com Anchor para criar/gestão de tokens (@solana/spl-token). Integra com Solana Validator.
+      - **Example**: Smart contract mint 1000 tokens, executado pelo Validator.
+    - **Anchor (0.30.0)**:
+      - **Description**: Framework para smart contracts Solana (~10% menos gas).
+      - **Context**: Reduz custos de transações, usado com Rust no Validator.
+      - **Example**: Define lógica de minting em programa Anchor, deployado via Solana CLI.
+    - **Promtail**:
+      - **Description**: Coleta logs do Validator e Rust/Anchor, envia ao Loki (TCP 3100).
+      - **Context**: Integra com Fluentd e Wazuh para análise.
+      - **Example**: Log de transação falhada é enviado ao Loki, visualizado no Grafana.
+  - **E2.1.Micro 1**:
+    - **Solana RPC (@solana/web3.js 1.95.0, @solana/spl-token 0.4.0)**:
+      - **Description**: Endpoint RPC para interagir com Solana (~10ms, port 8899).
+      - **Context**: Usado por Backend para auth e minting. Cacheado por Redis (TTL 30min).
+      - **Example**: GET /rpc verifica saldo de carteira Phantom, retorna em ~10ms.
+  - **E2.1.Micro 2**:
+    - **Redis (7.2.0)**:
+      - **Description**: Cache para respostas RPC (~100,000 ops/s, TTL 30min).
+      - **Context**: Reduz latência de chamadas RPC. Monitorado por Prometheus.
+      - **Example**: Cacheia resultado de /rpc/getBalance, evita chamadas repetidas.
+- **Load Balancer**: Network (/rpc, TCP 8899, Least Connections), Flexible (/health)
+- **Integration**:
+  - Receives requests from Frontend/Backend (TCP 8899)
+  - Publishes logs to Fluentd (EU-LOG-01, TCP 24224)
 
-### Security Lists
+## 4. Security (1 account: EU-SEC-01)
 
-| Subnet | Regras de Ingress | Regras de Egress |
-| --- | --- | --- |
-| Frontend | TCP 80, 443 (Cloudflare IPs) | TCP 3000 (10.0.2.0/24), 8899 (10.0.3.0/24), 3100 (10.0.8.0/24) |
-| Backend | TCP 3000 (10.0.1.0/24, 10.0.6.0/24) | TCP 8899 (10.0.3.0/24), 3100 (10.0.8.0/24) |
-| Solana | TCP 8899 (10.0.1.0/24, 10.0.2.0/24) | TCP 3100 (10.0.8.0/24) |
-| Segurança | TCP 8200 (10.0.6.0/24) | TCP 3100 (10.0.8.0/24) |
-| Monitoramento | TCP 9090 (10.0.6.0/24) | TCP 3100 (10.0.8.0/24), 10050 (10.0.9.0/24) |
-| Gerenciamento | TCP 22, 8080 (admin IPs) | TCP 8200 (10.0.4.0/24), 9090 (10.0.5.0/24), 3100 (10.0.8.0/24) |
-| Helius Failover | TCP 8899 (10.0.1.0/24, 10.0.2.0/24) | TCP 3100 (10.0.8.0/24) |
-| Logs | TCP 3100 (all subnets) | Nenhum |
-| Gestão de Rede | TCP 10050 (10.0.5.0/24) | TCP 3100 (10.0.8.0/24) |
+- **Subnet**: 10.0.4.0/24 (private)
+- **VMs**:
+  - **A1.Flex**:
+    - **Vault (1.17.0)**:
+      - **Description**: Gerencia chaves/segredos (Solana keys, ADB passwords, port 8200, AES-256, mTLS).
+      - **Context**: Usado por Fastify, Solana Validator, Oracle ADB. Backups em MinIO, monitorado por Wazuh.
+      - **Example**: Fastify acessa senha do ADB via Vault para query segura.
+    - **Suricata (7.0.0)**:
+      - **Description**: IDS/IPS, detecta intrusões (<200ms, OWASP rules).
+      - **Context**: Analisa tráfego (10.0.4.0/24), integra com Wazuh para alertas. Logs ao Loki.
+      - **Example**: Detecta tentativa de brute-force em /api/v1/auth, alerta no Wazuh.
+    - **Promtail**:
+      - **Description**: Coleta logs de Vault, Suricata, Wazuh, Fabric, Crowdsec.
+      - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
+      - **Example**: Log de acesso não autorizado ao Vault é enviado ao Loki.
+  - **E2.1.Micro 1**:
+    - **Wazuh (4.9.0)**:
+      - **Description**: SIEM para análise de segurança (~100,000 eventos/hora).
+      - **Context**: Coleta logs de Suricata, Crowdsec, Promtail. Integra com Grafana para dashboards de segurança.
+      - **Example**: Identifica padrão de ataques DDoS, bloqueia IPs via Crowdsec.
+    - **MinIO**:
+      - **Description**: Armazena backups de segredos Vault (port 9000, 5 GB).
+      - **Context**: Gerenciado por Ansible, acessado por Vault.
+      - **Example**: Backup diário de chaves Solana em /vault/backups/keys.
+  - **E2.1.Micro 2**:
+    - **Hyperledger Fabric**:
+      - **Description**: Blockchain permissionada para transações off-chain e permissões (port 7051, 10 GB).
+      - **Context**: Gerencia permissões de minting, integra com Backend (Fastify, TCP 7051). Logs ao Loki.
+      - **Example**: Registra permissão para mint 1000 tokens, sincroniza com Solana.
+    - **Crowdsec (1.5.0)**:
+      - **Description**: Firewall colaborativo, protege Web3 auth (~50 req/s per IP, port 8080).
+      - **Context**: Monitora logs Fastify, bloqueia IPs via UFW. Integra com Wazuh.
+      - **Example**: Bloqueia IP após 50 tentativas falhas em /api/v1/auth.
+- **Load Balancer**: Flexible (/status)
+- **Integration**:
+  - Vault accessed by EU-MGMT-01 (TCP 8200)
+  - Fabric integrates with Backend (TCP 7051)
+  - Crowdsec monitors Fastify logs, bans IPs via UFW
 
-- **GUI**: Networking &gt; Security Lists &gt; Add Rules
+## 5. Monitoring (1 account: EU-MON-01)
 
-## 3. Servidores e Funções
+- **Subnet**: 10.0.5.0/24 (private)
+- **VMs**:
+  - **A1.Flex**:
+    - **Prometheus (2.54.0)**:
+      - **Description**: Coleta métricas (~10,000 métricas/s, port 9090).
+      - **Context**: Coleta métricas de Fastify, Redis, Solana, Vault, etc. Integra com Grafana.
+      - **Example**: Métrica fastify_request_duration_seconds mostra latência de /api/v1/buy.
+    - **Grafana (11.2.0)**:
+      - **Description**: Dashboards para métricas, logs, traces (port 3000).
+      - **Context**: Visualiza dados de Prometheus, Loki, Jaeger. Integra com Wazuh para segurança.
+      - **Example**: Dashboard exibe throughput de transações Solana (~70,000 tx/h).
+    - **Jaeger (1.60.0)**:
+      - **Description**: Visualiza traces distribuídos (~1000 traces/min).
+      - **Context**: Usado com OpenTelemetry para debug (ex.: latência Frontend → Backend → Solana).
+      - **Example**: Trace mostra gargalo em /api/v1/buy (10ms no Oracle ADB).
+    - **Promtail**:
+      - **Description**: Coleta logs de Prometheus, Grafana, Jaeger, RabbitMQ.
+      - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
+      - **Example**: Log de erro no RabbitMQ é enviado ao Loki, visualizado no Grafana.
+  - **E2.1.Micro 1**:
+    - **Prometheus (2.54.0)**:
+      - **Description**: Réplica do Prometheus para redundância.
+      - **Context**: Garante alta disponibilidade, coleta métricas idênticas ao Prometheus principal.
+      - **Example**: Assume coleta de métricas se A1.Flex falhar.
+  - **E2.1.Micro 2**:
+    - **RabbitMQ (3.12.0)**:
+      - **Description**: Fila de mensagens (buy_queue, ~10,000 mensagens/h, port 5672).
+      - **Context**: Conecta Frontend/Backend/Solana. Monitorado por Prometheus.
+      - **Example**: Mensagem de compra (POST /api/v1/buy) é enfileirada, processada pelo Solana Validator.
+    - **OpenTelemetry (0.52.0)**:
+      - **Description**: Coleta traces distribuídos (port 4317, amostragem 10%).
+      - **Context**: Usado por Fastify, React, Solana RPC. Envia traces ao Jaeger, métricas ao Prometheus.
+      - **Example**: Registra latência de auth Web3, correlaciona com logs no Loki.
+- **Load Balancer**: Flexible (/metrics)
+- **Integration**:
+  - Grafana accesses Loki (TCP 3100, 10.0.8.0/24) and Jaeger (/traces)
+  - RabbitMQ serves Frontend/Backend (TCP 5672)
+  - Prometheus monitors all subnets
 
-- **Total de VMs**: 45 (15 A1.Flex, 30 E2.1.Micro, 3 por conta).
-- **Free Tier por conta**: 1 A1.Flex (4 OCPUs, 24 GB RAM), 2 E2.1.Micro (1 OCPU, 1 GB RAM), 200 GB Block Volume.
+## 6. Management (1 account: EU-MGMT-01)
 
-| Conta | Subnet CIDR | VMs | Função | Endpoint |
-| --- | --- | --- | --- | --- |
-| EU-FE-01 | 10.0.1.0/24 | A1.Flex (React, Fastify), 2 E2.1.Micro (Redis, MinIO) | Interface Web, APIs `/api/tokens`, `/api/form` | /health |
-| NA-FE-01 | 10.0.1.0/24 | A1.Flex (React, Fastify), 2 E2.1.Micro (Redis, MinIO) | Interface Web, APIs | /health |
-| SA-FE-01 | 10.0.1.0/24 | A1.Flex (React, Fastify), 2 E2.1.Micro (Redis, MinIO) | Interface Web, APIs | /health |
-| AS-FE-01 | 10.0.1.0/24 | A1.Flex (React, Fastify), 2 E2.1.Micro (Redis, MinIO) | Interface Web, APIs | /health |
-| AU-FE-01 | 10.0.1.0/24 | A1.Flex (React, Fastify), 2 E2.1.Micro (Redis, MinIO) | Interface Web, APIs | /health |
-| EU-BE-01 | 10.0.2.0/24 | A1.Flex (APIs, PostgreSQL), 2 E2.1.Micro (Redis, MinIO) | APIs `/api/create`, `/api/buy`, DB | /health |
-| NA-BE-01 | 10.0.2.0/24 | A1.Flex (APIs, PostgreSQL), 2 E2.1.Micro (Redis, MinIO) | APIs, DB | /health |
-| EU-SOL-01 | 10.0.3.0/24 | A1.Flex (nó Solana), 2 E2.1.Micro (RPC, Redis) | Transações Solana (\~35.000 tx/h) | /rpc |
-| AS-SOL-01 | 10.0.3.0/24 | A1.Flex (nó Solana), 2 E2.1.Micro (RPC, Redis) | Transações Solana (\~35.000 tx/h) | /rpc |
-| EU-SEC-01 | 10.0.4.0/24 | A1.Flex (Vault, Suricata), 2 E2.1.Micro (MinIO, livre) | Chaves, segurança | /status |
-| EU-MON-01 | 10.0.5.0/24 | A1.Flex (Prometheus, Grafana), 2 E2.1.Micro (Prometheus, livre) | Métricas, dashboards | /metrics |
-| EU-MGMT-01 | 10.0.6.0/24 | A1.Flex (Ansible, bots), 2 E2.1.Micro (Redis, MinIO) | Automação, Telegram/Discord | /admin |
-| EU-FAIL-01 | 10.0.7.0/24 | A1.Flex (HAProxy), 2 E2.1.Micro (Redis, livre) | Failover Helius (\~5000 tx/h) | /failover/health |
-| EU-LOG-01 | 10.0.8.0/24 | A1.Flex (Loki), 2 E2.1.Micro (MinIO, livre) | Logs centralizados, File Storage | /logs |
-| EU-NET-01 | 10.0.9.0/24 | A1.Flex (Zabbix, UFW), 2 E2.1.Micro (Redis, MinIO) | Monitoramento de rede, firewall | /network |
+- **Subnet**: 10.0.6.0/24 (private)
+- **VMs**:
+  - **A1.Flex**:
+    - **Ansible**:
+      - **Description**: Orquestra deploys e configurações.
+      - **Context**: Gerencia VMs (Frontend, Backend, Solana, etc.). Integra com ArgoCD para GitOps.
+      - **Example**: Playbook atualiza Fastify em EU-BE-01, aplica via SSH.
+    - **ArgoCD (2.12.0)**:
+      - **Description**: GitOps para deploys contínuos (Canary 10%).
+      - **Context**: Sincroniza manifests com VMs. Usa Sigstore para assinar imagens Docker.
+      - **Example**: Deploy canary de Fastify v4.28.1, rollback se falhar.
+    - **Rasa (3.6.0)**:
+      - **Description**: Chatbot para suporte (~98% acurácia, intents fees, refund_status).
+      - **Context**: Integra com Telegram/Discord Bots, responde a perguntas de usuários. Logs ao Loki.
+      - **Example**: Usuário pergunta "status do reembolso", Rasa responde com dados de Oracle ADB.
+    - **Sigstore (Cosign 2.4.0)**:
+      - **Description**: Assina imagens Docker para segurança.
+      - **Context**: Usado por ArgoCD para verificar imagens (Fastify, React). Integra com Trivy.
+      - **Example**: Assina imagem fastify:latest, garante integridade no deploy.
+    - **Telegram/Discord Bots**:
+      - **Description**: Notificam alertas e interagem com usuários.
+      - **Context**: Usa Telegraf para métricas, integra com Rasa para suporte. Alertas de Prometheus/Wazuh.
+      - **Example**: Notifica "Erro 500 em /api/v1/buy" no Telegram.
+    - **Promtail**:
+      - **Description**: Coleta logs de Ansible, ArgoCD, Rasa, bots.
+      - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
+      - **Example**: Log de falha no deploy ArgoCD é enviado ao Loki.
+  - **E2.1.Micro 1**:
+    - **Redis (7.2.0)**:
+      - **Description**: Cache para estados de bots (~100,000 ops/s).
+      - **Context**: Usado por Rasa e Telegram/Discord Bots.
+      - **Example**: Armazena estado de conversa do Rasa, reduz latência de resposta.
+  - **E2.1.Micro 2**:
+    - **Scorecard (5.0.0)**:
+      - **Description**: Avalia segurança de repositórios (score >8).
+      - **Context**: Analisa código no GitHub, alerta via Telegram/Discord. Integra com Trivy.
+      - **Example**: Detecta dependência vulnerável no repositório, notifica equipe.
+    - **Trivy (0.55.0)**:
+      - **Description**: Escaneia imagens Docker, rejeita vulnerabilidades críticas.
+      - **Context**: Usado por ArgoCD antes de deploys. Logs ao Loki.
+      - **Example**: Rejeita imagem com CVE crítico, impede deploy no Frontend.
+    - **MinIO**:
+      - **Description**: Armazena playbooks Ansible e artefatos (port 9000, 5 GB).
+      - **Context**: Acessado por Ansible/ArgoCD.
+      - **Example**: Armazena playbook.yml para deploy do Fastify.
+- **Load Balancer**: Flexible (/admin)
+- **Integration**:
+  - Ansible/ArgoCD deploy to all subnets
+  - Bots notify via Prometheus alerts (TCP 9090)
 
-## 4. Configuração de Load Balancers
+## 7. Helius Failover (1 account: EU-FAIL-01)
 
-### Flexible Load Balancers (15)
+- **Subnet**: 10.0.7.0/24 (public)
+- **VMs**:
+  - **A1.Flex**:
+    - **Envoy (1.31.0)**:
+      - **Description**: Proxy para failover Helius (~15,000 req/s, port 8899).
+      - **Context**: Roteia requisições Solana em falhas (via headers). Logs ao Loki.
+      - **Example**: Redireciona chamada /rpc ao Helius se Solana Validator falhar.
+    - **Promtail**:
+      - **Description**: Coleta logs do Envoy, envia ao Loki (TCP 3100).
+      - **Context**: Integra com Fluentd e Wazuh.
+      - **Example**: Log de failover bem-sucedido é enviado ao Loki.
+  - **E2.1.Micro 1**:
+    - **Redis (7.2.0)**:
+      - **Description**: Cache para respostas de failover (~100,000 ops/s).
+      - **Context**: Usado por Envoy para reduzir latência.
+      - **Example**: Cacheia resposta de /rpc do Helius, retorna em ~1ms.
+  - **E2.1.Micro 2**:
+    - **Telegraf (1.32.0)**:
+      - **Description**: Coleta métricas de Envoy (500 mensagens/h/canal).
+      - **Context**: Envia métricas ao Prometheus, usado por bots sociais.
+      - **Example**: Métrica envoy_request_count é enviada ao Prometheus.
+- **Load Balancer**: Network (/failover/health, TCP 8899), Flexible (/failover)
+- **Integration**:
+  - Receives requests from Frontend/Backend (TCP 8899)
 
-- **Exemplo**: EU-FE-01
-- **GUI**: Networking &gt; Load Balancers &gt; Create Load Balancer
-- **Configuração**:
-  - Nome: `EU-FE-LB-Flexible`
-  - Tipo: Flexible (10 Mbps)
-  - Subnet: `10.0.1.0/24` (pública)
-  - Backend Set: A1.Flex (60%), E2.1.Micro 1 (20%), E2.1.Micro 2 (20%)
-  - Health Check: HTTP `/health`, 10s intervalo, 5s timeout, 3 retries
-  - Listener: HTTP 80
-- **Contas e Endpoints**:
+## 8. Logs (1 account: EU-LOG-01)
 
-| Conta | Subnet CIDR | Endpoint |
-| --- | --- | --- |
-| EU-FE-01 | 10.0.1.0/24 | /health |
-| NA-FE-01 | 10.0.1.0/24 | /health |
-| SA-FE-01 | 10.0.1.0/24 | /health |
-| AS-FE-01 | 10.0.1.0/24 | /health |
-| AU-FE-01 | 10.0.1.0/24 | /health |
-| EU-BE-01 | 10.0.2.0/24 | /health |
-| NA-BE-01 | 10.0.2.0/24 | /health |
-| EU-SOL-01 | 10.0.3.0/24 | /health |
-| AS-SOL-01 | 10.0.3.0/24 | /health |
-| EU-SEC-01 | 10.0.4.0/24 | /status |
-| EU-MON-01 | 10.0.5.0/24 | /metrics |
-| EU-MGMT-01 | 10.0.6.0/24 | /admin |
-| EU-FAIL-01 | 10.0.7.0/24 | /failover/health |
-| EU-LOG-01 | 10.0.8.0/24 | /logs |
-| EU-NET-01 | 10.0.9.0/24 | /network |
+- **Subnet**: 10.0.8.0/24 (public)
+- **VMs**:
+  - **A1.Flex**:
+    - **Loki (3.1.0)**:
+      - **Description**: Armazena logs (~1M logs/dia, 400 GB File Storage, port 3100).
+      - **Context**: Recebe logs de Promtail e Fluentd. Visualizado no Grafana, analisado por Wazuh.
+      - **Example**: Exibe logs de erros 500 de /api/v1/buy no dashboard Grafana.
+  - **E2.1.Micro 1**:
+    - **MinIO**:
+      - **Description**: Armazena backups de logs críticos (port 9000, 50 GB).
+      - **Context**: Gerenciado por Ansible, acessado por Fluentd.
+      - **Example**: Backup de logs de segurança em /logs/security.log.gz.
+  - **E2.1.Micro 2**:
+    - **Fluentd**:
+      - **Description**: Agrega/processa logs, envia ao Loki/RabbitMQ (port 24224).
+      - **Context**: Coleta logs de todas subnets, integra com OpenTelemetry para traces.
+      - **Example**: Processa log de transação Solana, envia ao Loki.
+- **Load Balancer**: Flexible (/logs)
+- **Integration**:
+  - Receives logs from all subnets (TCP 3100, 24224)
+  - Accessed by Grafana (EU-MON-01, /logs)
 
-### Network Load Balancers (3)
+## 9. Network Management (1 account: EU-NET-01)
 
-- **Exemplo**: EU-SOL-01
-- **GUI**: Networking &gt; Load Balancers &gt; Create Load Balancer
-- **Configuração**:
-  - Nome: `EU-SOL-LB-Network`
-  - Tipo: Network
-  - Subnet: `10.0.3.0/24` (pública)
-  - Backend Set: A1.Flex, E2.1.Micro 1 (Least Connections)
-  - Health Check: TCP `/rpc`, 10s intervalo, 5s timeout, 3 retries
-  - Listener: TCP 8899
-- **Contas e Endpoints**:
-
-| Conta | Subnet CIDR | Endpoint |
-| --- | --- | --- |
-| EU-SOL-01 | 10.0.3.0/24 | /rpc |
-| AS-SOL-01 | 10.0.3.0/24 | /rpc |
-| EU-FAIL-01 | 10.0.7.0/24 | /failover/health |
-
-## 5. Gerenciamento de Logs
-
-- **Frontend (10.0.1.0/24)**:
-  - **Geração**: A1.Flex (Fastify, JSON logs, ex.: `{"msg":"GET /api/tokens 200"}`), E2.1.Micro (Redis, cache logs).
-  - **Coleta**: Promtail em cada VM envia logs via TCP 3100 para Loki (`10.0.8.10`).
-  - **Configuração**:
-    - Arquivo: `/etc/promtail/config.yml`
-
-    ```yaml
-    clients:
-      - url: http://10.0.8.10:3100/loki/api/v1/push
-    scrape_configs:
-      - job_name: frontend
-        static_configs:
-          - targets: [localhost]
-            labels:
-              job: frontend
-              host: eu-fe-01
-    ```
-    - Gerenciado por Ansible (EU-MGMT-01).
-- **Logs (EU-LOG-01, 10.0.8.0/24)**:
-  - **Armazenamento**: Loki em A1.Flex usa File Storage (400 GB, \~294 GB logs, 7 dias, \~35 GB para 5 Frontend).
-  - **Backup**: MinIO em E2.1.Micro (50 GB, logs críticos, ex.: erros HTTP 500).
-  - **GUI**: Compute &gt; File Storage &gt; Create File System (400 GB, montado em `/mnt/logs`).
-  - **Acesso**: Grafana (EU-MON-01, `10.0.5.0/24`) consulta logs via `/logs` (Flexible Load Balancer, 2FA).
-- **Security List**:
-  - `10.0.1.0/24`: Egress TCP 3100 para `10.0.8.0/24`.
-  - `10.0.8.0/24`: Ingress TCP 3100 de todas subnets.
-
-## 6. Integração com Cloudflare
-
-- **GeoDNS**: Roteia para Load Balancers regionais (ex.: `eu-fe.blitzhub.sol` → EU-FE-01).
-- **Registros A**: IPs dos Flexible Load Balancers.
-- **WAF**: 5 regras (XSS, SQLi).
-- **Zero Trust**: 2FA para `/status`, `/metrics`, `/admin`, `/failover`, `/logs`, `/network`.
-
-## 7. Monitoramento
-
-- **Prometheus** (EU-MON-01): Métricas (`load_balancer_requests_total`, `load_balancer_latency_seconds`).
-- **Zabbix** (EU-NET-01): Monitoramento de tráfego.
-- **Grafana**: Dashboards por região, integração com Loki para logs.
-- **Alertas**: Latência &gt;5ms, erros HTTP &gt;1%.
-
-## 8. Segurança
-
-- **Subnets Privadas**: Segurança, Monitoramento, Gerenciamento, Gestão de Rede.
-- **Security Lists**: Regras mínimas (ex.: TCP 8200 apenas de `10.0.6.0/24` para Segurança).
-- **Cloudflare**: WAF (5 regras), Zero Trust (2FA).
-- **Vault** (EU-SEC-01): Gerencia chaves.
-- **Suricata** (EU-SEC-01): Detecção de intrusão.
-
-## 9. Configuração via GUI
-
-### Passo 1: Criar VCN
-
-- **Acesse**: Oracle Cloud &gt; Networking &gt; Virtual Cloud Networks
-- **Conta**: EU-NET-01
-- **Criar**:
-  - Nome: BlitzHubVCN
-  - CIDR: `10.0.0.0/16`
-  - Compartment: Rede
-
-### Passo 2: Criar Subnets
-
-- **Acesse**: Networking &gt; Subnets
-- **Criar Subnets**:
-  - Frontend: `10.0.1.0/24`, pública, Internet Gateway
-  - Segurança: `10.0.4.0/24`, privada, NAT Gateway
-  - (Repita para todas, seção 2)
-
-### Passo 3: Configurar Security Lists
-
-- **Acesse**: Networking &gt; Security Lists
-- **Criar Security List por subnet**:
-  - Exemplo (Frontend):
-    - Ingress: TCP 80, 443 (Cloudflare IPs)
-    - Egress: TCP 3000 (10.0.2.0/24), 8899 (10.0.3.0/24), 3100 (10.0.8.0/24)
-  - Exemplo (Logs):
-    - Ingress: TCP 3100 (all subnets)
-    - Egress: Nenhum
-
-### Passo 4: Migrar VMs
-
-- **Para cada conta** (ex.: EU-FE-01):
-  - Acesse: Compute &gt; Instances
-  - Mover A1.Flex, E2.1.Micro para subnet correspondente (ex.: `10.0.1.0/24`)
-  - Atualizar IPs privados (ex.: `10.0.1.10` para EU-FE-A1-01)
-
-### Passo 5: Configurar Logs
-
-- **Frontend**:
-  - Instalar Promtail em A1.Flex/E2.1.Micro (via Ansible, EU-MGMT-01)
-  - Configurar: `/etc/promtail/config.yml` (seção 5)
-- **EU-LOG-01**:
-  - Configurar Loki em A1.Flex, File Storage (400 GB) em `/mnt/logs`
-  - MinIO em E2.1.Micro (50 GB)
-
-### Passo 6: Configurar Load Balancers
-
-- **Acesse**: Networking &gt; Load Balancers
-- Criar 15 Flexible e 3 Network Load Balancers (seção 4)
-
-### Passo 7: Testar
-
-- Verificar endpoints: `/health`, `/rpc`, `/logs`, `/network`
-- Monitorar latência (Zabbix, Prometheus)
-- Testar logs no Grafana (ex.: `{job="frontend"} |= "error"`)
-
-## 10. Próximos Passos (5 dias)
-
-- **Dia 1**: Criar VCN e subnets em EU-NET-01
-- **Dia 2**: Configurar Security Lists, Internet/NAT Gateways
-- **Dia 3**: Migrar VMs das 15 contas para subnets
-- **Dia 4**: Configurar Promtail/Loki e Load Balancers
-- **Dia 5**: Testar comunicação, logs, latência, segurança
+- **Subnet**: 10.0.9.0/24 (private)
+- **VMs**:
+  - **A1.Flex**:
+    - **Zabbix**:
+      - **Description**: Monitora saúde da rede (port 10050).
+      - **Context**: Coleta métricas de VMs, Load Balancers. Integra com Prometheus/Grafana.
+      - **Example**: Alerta sobre alta latência em 10.0.1.0/24, notifica via Telegram.
+    - **UFW**:
+      - **Description**: Firewall local, bloqueia tráfego não autorizado.
+      - **Context**: Configurado por Ansible, usado por Crowdsec para banir IPs.
+      - **Example**: Bloqueia IP após ataque detectado por Crowdsec.
+    - **Netdata**:
+      - **Description**: Monitoramento em tempo real (port 19999).
+      - **Context**: Coleta métricas de sistema (CPU, RAM). Integra com Prometheus.
+      - **Example**: Exibe uso de CPU do A1.Flex em EU-NET-01.
+    - **Promtail**:
+      - **Description**: Coleta logs de Zabbix, UFW, Netdata, Bind9.
+      - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
+      - **Example**: Log de falha DNS no Bind9 é enviado ao Loki.
+  - **E2.1.Micro 1**:
+    - **Bind9 (9.18.0)**:
+      - **Description**: Servidor DNS local (<10ms, cache TTL 300s).
+      - **Context**: Resolve nomes internos (ex.: adb_host). Cacheado por Redis.
+      - **Example**: Resolve adb_host para Oracle ADB, reduz latência de DNS.
+    - **Redis (7.2.0)**:
+      - **Description**: Cache para métricas de rede (~100,000 ops/s).
+      - **Context**: Usado por Bind9 e Netdata.
+      - **Example**: Cacheia resolução DNS de adb_host, retorna em ~1ms.
+  - **E2.1.Micro 2**:
+    - **MinIO**:
+      - **Description**: Armazena relatórios Zabbix (port 9000, 5 GB).
+      - **Context**: Acessado por Zabbix, gerenciado por Ansible.
+      - **Example**: Armazena relatório de rede em /zabbix/network.pdf.
+- **Load Balancer**: Flexible (/network)
+- **Integration**:
+  - Monitored by EU-MON-01 (TCP 10050)
