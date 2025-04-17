@@ -1,0 +1,354 @@
+# BlitzHub API Requirements for Token Maturation Platform
+
+**Context**: APIs for a Solana-based token maturation platform (Web3 auth via Phantom/Solflare, ~1000 users, ~10,000 req/s Backend, ~70,000 tx/h Solana). Backend runs on Fastify (EU-BE-01, AU-BE-01, SA-BE-01), integrates with Solana RPC, Helius Failover, RabbitMQ, Redis, Oracle ADB, and Vault for secrets. SLOs: <50ms latency for APIs, <25ms for assets.
+
+**Purpose**: Enable token transactions (buy, sell, stake), user authentication, balance queries, and internal management, ensuring scalability, security, and low latency.
+
+## 1. Token Transaction APIs
+
+### 1.1. Buy Tokens
+- **Endpoint**: `/api/v1/buy`
+- **Description**: Initiates a token purchase on Solana, enqueues transaction via RabbitMQ.
+- **Method**: POST
+- **Parameters**:
+  - `userId` (string, required): User identifier from Phantom/Solflare.
+  - `amount` (number, required): Token amount to buy (ex.: 100.5).
+  - `tokenId` (string, required): Token identifier (ex.: BLZ).
+  - `signature` (string, required): Web3 signature for authentication.
+- **Response**:
+  - **200**: `{ "txId": "abc123", "status": "queued" }`
+  - **400**: `{ "error": "Invalid signature" }`
+  - **500**: `{ "error": "Transaction failed" }`
+- **Dependencies**:
+  - RabbitMQ (EU-MON-01, TCP 5672): Enqueues transaction (`buy_queue`).
+  - Solana RPC (EU-SOL-01, TCP 8899): Submits transaction.
+  - Helius RPC Proxy (EU-HELIUS-01): Failover for Solana RPC.
+  - Redis (EU-BE-01): Caches user session.
+  - Vault (EU-SEC-01): Stores `helius_api_key`.
+- **Security**:
+  - Web3 auth: Validate `signature` via Phantom/Solflare.
+  - Rate limit: 100 req/min per `userId` (Redis).
+  - Firewall: `ufw allow 3000/tcp` (Fastify).
+  - Wazuh: Monitor for SQL injection attempts.
+- **SLO**: <50ms (95th percentile, measured by `fastify_request_duration_seconds`).
+- **Example**:
+  ```http
+  POST /api/v1/buy
+  Content-Type: application/json
+  {
+    "userId": "user123",
+    "amount": 100.5,
+    "tokenId": "BLZ",
+    "signature": "sig456"
+  }
+  ---
+  200 OK
+  {
+    "txId": "abc123",
+    "status": "queued"
+  }
+  ```
+
+### 1.2. Sell Tokens
+- **Endpoint**: `/api/v1/sell`
+- **Description**: Initiates a token sale, enqueues via RabbitMQ for Solana processing.
+- **Method**: POST
+- **Parameters**:
+  - `userId` (string, required): User identifier.
+  - `amount` (number, required): Token amount to sell.
+  - `tokenId` (string, required): Token identifier.
+  - `signature` (string, required): Web3 signature.
+- **Response**:
+  - **200**: `{ "txId": "def456", "status": "queued" }`
+  - **400**: `{ "error": "Insufficient balance" }`
+  - **500**: `{ "error": "Transaction failed" }`
+- **Dependencies**:
+  - RabbitMQ: Enqueues transaction (`sell_queue`).
+  - Solana RPC/Helius: Submits transaction.
+  - Oracle ADB (EU-DB-01): Verifies user balance.
+  - Redis: Caches balance check.
+  - Vault: Stores DB credentials.
+- **Security**:
+  - Web3 auth: Validate `signature`.
+  - Balance check: Query Oracle ADB (`SELECT balance FROM user_tokens WHERE user_id = ?`).
+  - Rate limit: 100 req/min per `userId`.
+  - Wazuh: Monitor for unauthorized access.
+- **SLO**: <50ms.
+- **Example**:
+  ```http
+  POST /api/v1/sell
+  Content-Type: application/json
+  {
+    "userId": "user123",
+    "amount": 50,
+    "tokenId": "BLZ",
+    "signature": "sig789"
+  }
+  ---
+  200 OK
+  {
+    "txId": "def456",
+    "status": "queued"
+  }
+  ```
+
+### 1.3. Stake Tokens
+- **Endpoint**: `/api/v1/stake`
+- **Description**: Stakes tokens for rewards, enqueues via RabbitMQ.
+- **Method**: POST
+- **Parameters**:
+  - `userId` (string, required): User identifier.
+  - `amount` (number, required): Token amount to stake.
+  - `tokenId` (string, required): Token identifier.
+  - `signature` (string, required): Web3 signature.
+- **Response**:
+  - **200**: `{ "txId": "ghi789", "status": "queued" }`
+  - **400**: `{ "error": "Invalid amount" }`
+  - **500**: `{ "error": "Staking failed" }`
+- **Dependencies**:
+  - RabbitMQ: Enqueues staking transaction (`stake_queue`).
+  - Solana RPC/Helius: Submits staking transaction.
+  - Oracle ADB: Updates staking records.
+  - Redis: Caches staking state.
+- **Security**:
+  - Web3 auth: Validate `signature`.
+  - Rate limit: 50 req/min per `userId`.
+  - Vault: Stores Solana staking keys.
+- **SLO**: <50ms.
+- **Example**:
+  ```http
+  POST /api/v1/stake
+  Content-Type: application/json
+  {
+    "userId": "user123",
+    "amount": 200,
+    "tokenId": "BLZ",
+    "signature": "sig012"
+  }
+  ---
+  200 OK
+  {
+    "txId": "ghi789",
+    "status": "queued"
+  }
+  ```
+
+## 2. User Management APIs
+
+### 2.1. Authenticate User
+- **Endpoint**: `/api/v1/auth`
+- **Description**: Authenticates user via Web3 wallet (Phantom/Solflare), issues JWT.
+- **Method**: POST
+- **Parameters**:
+  - `publicKey` (string, required): Wallet public key.
+  - `signature` (string, required): Signed message for verification.
+  - `message` (string, required): Original message signed.
+- **Response**:
+  - **200**: `{ "token": "jwt123", "expiresIn": 3600 }`
+  - **401**: `{ "error": "Invalid signature" }`
+- **Dependencies**:
+  - Redis: Stores JWT session (TTL 1h).
+  - Vault: Stores JWT secret.
+  - Fastify: Handles JWT issuance.
+- **Security**:
+  - Validate `signature` against `publicKey` and `message`.
+  - Rate limit: 10 req/min per `publicKey`.
+  - Wazuh: Monitor for brute-force attempts.
+- **SLO**: <30ms.
+- **Example**:
+  ```http
+  POST /api/v1/auth
+  Content-Type: application/json
+  {
+    "publicKey": "pubkey123",
+    "signature": "sig345",
+    "message": "BlitzHub login"
+  }
+  ---
+  200 OK
+  {
+    "token": "jwt123",
+    "expiresIn": 3600
+  }
+  ```
+
+### 2.2. Get User Balance
+- **Endpoint**: `/api/v1/balance`
+- **Description**: Retrieves user token balance from Oracle ADB and Solana.
+- **Method**: GET
+- **Parameters**:
+  - `userId` (string, required, query): User identifier.
+  - `tokenId` (string, optional, query): Token identifier (default: all tokens).
+- **Response**:
+  - **200**: `{ "userId": "user123", "balances": [{ "tokenId": "BLZ", "amount": 1000.5 }] }`
+  - **404**: `{ "error": "User not found" }`
+- **Dependencies**:
+  - Oracle ADB: Queries user balances (`SELECT * FROM user_tokens WHERE user_id = ?`).
+  - Solana RPC/Helius: Verifies on-chain balance.
+  - Redis: Caches balance (TTL 1min).
+- **Security**:
+  - JWT auth: Validate token in `Authorization` header.
+  - Rate limit: 200 req/min per `userId`.
+  - Wazuh: Monitor for unauthorized queries.
+- **SLO**: <40ms.
+- **Example**:
+  ```http
+  GET /api/v1/balance?userId=user123
+  Authorization: Bearer jwt123
+  ---
+  200 OK
+  {
+    "userId": "user123",
+    "balances": [
+      { "tokenId": "BLZ", "amount": 1000.5 }
+    ]
+  }
+  ```
+
+## 3. Platform Query APIs
+
+### 3.1. Get Token Info
+- **Endpoint**: `/api/v1/token`
+- **Description**: Retrieves metadata for a token (ex.: price, supply).
+- **Method**: GET
+- **Parameters**:
+  - `tokenId` (string, required, query): Token identifier.
+- **Response**:
+  - **200**: `{ "tokenId": "BLZ", "name": "BlitzToken", "price": 0.5, "supply": 1000000 }`
+  - **404**: `{ "error": "Token not found" }`
+- **Dependencies**:
+  - Oracle ADB: Stores token metadata.
+  - Redis: Caches metadata (TTL 5min).
+  - Helius RPC: Fetches on-chain data if cache miss.
+- **Security**:
+  - Public endpoint, no auth required.
+  - Rate limit: 500 req/min per IP.
+  - Wazuh: Monitor for DDoS patterns.
+- **SLO**: <30ms.
+- **Example**:
+  ```http
+  GET /api/v1/token?tokenId=BLZ
+  ---
+  200 OK
+  {
+    "tokenId": "BLZ",
+    "name": "BlitzToken",
+    "price": 0.5,
+    "supply": 1000000
+  }
+  ```
+
+### 3.2. Get Transaction Status
+- **Endpoint**: `/api/v1/tx`
+- **Description**: Checks status of a transaction (buy, sell, stake).
+- **Method**: GET
+- **Parameters**:
+  - `txId` (string, required, query): Transaction ID.
+- **Response**:
+  - **200**: `{ "txId": "abc123", "status": "confirmed", "blockTime": 1623456789 }`
+  - **404**: `{ "error": "Transaction not found" }`
+- **Dependencies**:
+  - Solana RPC/Helius: Queries transaction status (`getTransaction`).
+  - Redis: Caches status (TTL 10min).
+  - Oracle ADB: Logs transaction details.
+- **Security**:
+  - JWT auth for user-specific transactions.
+  - Rate limit: 200 req/min per `txId`.
+- **SLO**: <40ms.
+- **Example**:
+  ```http
+  GET /api/v1/tx?txId=abc123
+  Authorization: Bearer jwt123
+  ---
+  200 OK
+  {
+    "txId": "abc123",
+    "status": "confirmed",
+    "blockTime": 1623456789
+  }
+  ```
+
+## 4. Internal Management APIs
+
+### 4.1. Health Check
+- **Endpoint**: `/api/v1/health`
+- **Description**: Verifies Backend service status for Load Balancer.
+- **Method**: GET
+- **Parameters**: None
+- **Response**:
+  - **200**: `{ "status": "ok", "uptime": 123456 }`
+  - **503**: `{ "status": "error", "error": "Database unavailable" }`
+- **Dependencies**:
+  - Fastify: Exposes endpoint.
+  - Oracle ADB: Checks DB connection.
+  - Redis: Checks cache connection.
+- **Security**:
+  - Restricted to Load Balancer IPs (10.0.2.0/24, 10.0.3.0/24).
+  - Firewall: `ufw allow from 10.0.2.0/24 to any port 3000`.
+- **SLO**: <20ms.
+- **Example**:
+  ```http
+  GET /api/v1/health
+  ---
+  200 OK
+  {
+    "status": "ok",
+    "uptime": 123456
+  }
+  ```
+
+### 4.2. Metrics
+- **Endpoint**: `/api/v1/metrics`
+- **Description**: Exposes Prometheus metrics for monitoring.
+- **Method**: GET
+- **Parameters**: None
+- **Response**:
+  - **200**: Prometheus text format (ex.: `fastify_request_duration_seconds...`)
+- **Dependencies**:
+  - Fastify: Integrates `prom-client`.
+  - Prometheus (EU-MON-01): Scrapes metrics (TCP 9090).
+- **Security**:
+  - Restricted to Prometheus IPs (10.0.5.0/24).
+  - Firewall: `ufw allow from 10.0.5.0/24 to any port 3000`.
+- **SLO**: <20ms.
+- **Example**:
+  ```http
+  GET /api/v1/metrics
+  ---
+  200 OK
+  # TYPE fastify_request_duration_seconds histogram
+  fastify_request_duration_seconds_bucket{le="0.05"} 1000
+  ```
+
+## Implementation Notes
+- **Fastify Routes**: Implement in `/app/routes/api/v1/*` (ex.: `buy.js`, `auth.js`), use `fastify.register` for modularity.
+- **Rate Limiting**: Use `fastify-rate-limit` with Redis backend.
+- **Error Handling**: Standardize errors (ex.: `{ "error": "message" }`) with Fastify schemas.
+- **Monitoring**: Instrument APIs with `prom-client` (ex.: `fastify_request_duration_seconds`).
+- **Ansible Deployment**:
+  - Create playbook to deploy routes (ex.: `/app/routes/api/v1/buy.js`).
+  - Example:
+    ```yaml
+    - name: Deploy API routes
+      copy:
+        src: routes/api/v1/
+        dest: /app/routes/api/v1/
+        owner: app
+        group: app
+        mode: '0644'
+    - name: Restart Fastify
+      command: pm2 restart fastify
+    ```
+- **Testing**: Use Jest for unit tests (ex.: test `/api/v1/buy` with mock Solana RPC).
+- **Scaling**: APIs support ~10,000 req/s via Load Balancer (Least Connections) and Redis caching.
+
+## Security Considerations
+- **Web3 Auth**: Validate signatures with Solana Web3.js (`verifySignature`).
+- **Secrets**: Store API keys, DB credentials in Vault (ex.: `secret/helius_api_key`).
+- **Wazuh**: Monitor endpoints for anomalies (ex.: `wazuh_alerts_total > 50`).
+- **Rate Limits**: Enforce via Redis to prevent abuse.
+
+## Potential Tweaks
+- **Caching**: Adjust Redis TTL (ex.: 1min to 5min for `/api/v1/balance`) if cache hits are low.
+- **Latency**: Add CDN (ex.: Cloudflare) for `/api/v1/token` if global latency >30ms.
+- **Rate Limits**: Tighten limits (ex.: 50 req/min for `/api/v1/auth`) if brute-force detected.
