@@ -1,10 +1,10 @@
-# BlitzHub Server and Service List (Updated with Detailed Context)
+# BlitzHub Server and Service List (Complete with Enhanced Configuration)
 
 **Infrastructure**: VCN 10.0.0.0/16, 15 Oracle Free Tier accounts, 9 subnets, 45 VMs (15 A1.Flex, 30 E2.1.Micro), 18 Load Balancers (15 Flexible, 3 Network)
 
-**Purpose**: Token maturation platform on Solana, Web3 authentication (Phantom/Solflare), ~1000 concurrent users, ~25,000 req/s Frontend, ~10,000 req/s Backend, ~70,000 tx/h Solana
+**Purpose**: Token maturation platform on Solana, Web3 authentication (Phantom/Solflare), \~1000 concurrent users, \~25,000 req/s Frontend, \~10,000 req/s Backend, \~70,000 tx/h Solana
 
-**Latency**: ~1-2ms intra-region, SLOs: <50ms APIs, <25ms assets
+**Latency**: \~1-2ms intra-region, SLOs: &lt;50ms APIs, &lt;25ms assets
 
 ## 1. Frontend (5 accounts: EU-FE-01, NA-FE-01, SA-FE-01, AS-FE-01, AU-FE-01)
 
@@ -12,59 +12,347 @@
 - **VMs per account**:
   - **A1.Flex** (4 OCPUs, 24 GB RAM):
     - **React (18.3.0)**:
-      - **Description**: Framework JavaScript para interface web interativa, renderiza dashboards e formulários de token (~100ms renderização).
+      - **Description**: Framework JavaScript para interface web interativa, renderiza dashboards e formulários de token (\~100ms renderização).
       - **Context**: Exibe dados de transações (de Oracle ADB via Fastify), interage com Solana (Web3.js para auth). Usa Vite para build, Tailwind CSS para estilo, Recharts para gráficos, react-joyride para tutoriais. Envia logs ao Loki via Promtail.
       - **Example**: Usuário acessa dashboard, visualiza saldo de tokens, clica em "Buy", dispara chamada à API Fastify (/api/v1/buy).
+      - **Configuration Details**:
+        - Arquivo: `/app/frontend/package.json`, `/app/frontend/vite.config.js`.
+        - Porta: `80` (via Nginx).
+        - Variáveis: `VITE_API_URL=http://backend:3000`, `NODE_ENV=production`.
+        - Limite: 2 GB RAM via PM2 (`--max-memory-restart 2G`).
+      - **Dependencies**:
+        - Serviços: Fastify (TCP 3000), Nginx (TCP 80).
+        - Ordem: 1. Nginx, 2. Fastify, 3. React.
+      - **Security Settings**:
+        - Segredo: Nenhum (configuração pública).
+        - Firewall: `ufw allow 80/tcp` (via Nginx).
+        - Permissões: `chown app:app /app/frontend -R; chmod 644 /app/frontend/dist/*`.
+      - **Monitoring Rules**:
+        - Métrica: `http_requests_total{job="react", endpoint="/dashboard"}`.
+        - Alerta: `alert: ReactHighLatency expr: rate(http_request_duration_seconds[5m]) > 0.1 for: 5m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `sum(rate(http_requests_total{job="react"}[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO semanal às 03:00 UTC (`/backups/frontend_assets`).
+        - Logrotate: `/var/log/react.log` (diário, 7 dias retention).
+        - Auto-scaling: Adicionar A1.Flex se CPU &gt;70% por 5min.
+        - Atualização: Dependabot verifica React semanalmente.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback react --to-version v18.2.0`.
+        - Condição: Falha em `/health` (HTTP 500 por 2min).
+        - Fallback: React v18.2.0.
     - **Fastify (4.28.0)**:
-      - **Description**: Servidor Node.js para APIs Frontend (/api/tokens, /api/form), atua como proxy para Backend (~25,000 req/s).
+      - **Description**: Servidor Node.js para APIs Frontend (/api/tokens, /api/form), atua como proxy para Backend (\~25,000 req/s).
       - **Context**: Proxy de requisições ao Backend (10.0.2.0/24, TCP 3000), usa Redis para cache de respostas. Integra com ModSecurity (WAF) e Nginx (reverse proxy).
       - **Example**: Requisição GET /api/tokens lista tokens disponíveis, cached em Redis (TTL 1h).
+      - **Configuration Details**:
+        - Arquivo: `/app/config/fastify.js` (ex.: `{ port: 3000, host: '0.0.0.0' }`).
+        - Porta: `3000`.
+        - Variáveis: `NODE_ENV=production`, `REDIS_HOST=redis:6379`.
+        - Limite: 1 GB RAM via PM2 (`--max-memory-restart 1G`).
+      - **Dependencies**:
+        - Serviços: Redis (TCP 6379), Backend Fastify (TCP 3000).
+        - Ordem: 1. Redis, 2. Backend Fastify, 3. Frontend Fastify.
+      - **Security Settings**:
+        - Segredo: `secret/fastify/redis` no Vault.
+        - Firewall: `ufw allow 3000/tcp`.
+        - Permissões: `chown app:app /app/config -R; chmod 600 /app/config/fastify.js`.
+      - **Monitoring Rules**:
+        - Métrica: `http_requests_total{job="fastify", endpoint="/api/tokens"}`.
+        - Alerta: `alert: FastifyHighLatency expr: rate(http_request_duration_seconds[5m]) > 0.05 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `avg(rate(http_request_duration_seconds[5m])) by (endpoint)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 02:00 UTC (`/backups/fastify_logs`).
+        - Logrotate: `/var/log/fastify.log` (diário, 7 dias retention).
+        - Auto-scaling: Adicionar A1.Flex se CPU &gt;70% por 5min.
+        - Atualização: Dependabot verifica Fastify semanalmente.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback fastify --to-version v4.28.0`.
+        - Condição: Falha em `/health` (HTTP 500 por 2min).
+        - Fallback: Fastify v4.28.0.
     - **Vite (5.4.0)**:
-      - **Description**: Ferramenta de build para React, reduz tempo de compilação (~2s build).
+      - **Description**: Ferramenta de build para React, reduz tempo de compilação (\~2s build).
       - **Context**: Compila código React para produção, integrado com Tailwind CSS e Recharts. Gerenciado por PM2.
       - **Example**: Desenvolvedor executa "vite build", gera bundle otimizado para deploy via ArgoCD.
+      - **Configuration Details**:
+        - Arquivo: `/app/frontend/vite.config.js`.
+        - Porta: N/A (build tool).
+        - Variáveis: `VITE_ENV=production`.
+        - Limite: 500 MB RAM durante build.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Vite (antes de React deploy).
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: `chown app:app /app/frontend -R; chmod 644 /app/frontend/vite.config.js`.
+      - **Monitoring Rules**:
+        - Métrica: `vite_build_duration_seconds`.
+        - Alerta: `alert: ViteBuildFailure expr: vite_build_duration_seconds > 10 for: 1m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `sum(vite_build_duration_seconds)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO semanal (`/backups/vite_config`).
+        - Logrotate: `/var/log/vite.log` (semanal, 4 semanas retention).
+        - Atualização: Dependabot verifica Vite semanalmente.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback vite --to-version v5.3.0`.
+        - Condição: Falha no build (exit code != 0).
+        - Fallback: Vite v5.3.0.
     - **Tailwind CSS (3.4.0)**:
-      - **Description**: Framework CSS para estilização rápida (<1s), usado em dashboards e formulários.
+      - **Description**: Framework CSS para estilização rápida (&lt;1s), usado em dashboards e formulários.
       - **Context**: Aplicado via Vite, estiliza gráficos (Recharts) e tutoriais (react-joyride).
       - **Example**: Estiliza botão "Mint Token" com classes Tailwind (bg-blue-500 hover:bg-blue-700).
+      - **Configuration Details**:
+        - Arquivo: `/app/frontend/tailwind.config.js`.
+        - Porta: N/A.
+        - Variáveis: `TAILWIND_MODE=build`.
+        - Limite: Incluído no build Vite.
+      - **Dependencies**:
+        - Serviços: Vite.
+        - Ordem: 1. Vite, 2. Tailwind CSS.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: `chmod 644 /app/frontend/tailwind.config.js`.
+      - **Monitoring Rules**:
+        - Métrica: N/A (estático).
+        - Alerta: Nenhum.
+        - Dashboard: N/A.
+      - **Maintenance Tasks**:
+        - Backup: MinIO semanal (`/backups/tailwind_config`).
+        - Atualização: Dependabot verifica Tailwind semanalmente.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback tailwind --to-version v3.3.0`.
+        - Condição: Falha no build Vite.
+        - Fallback: Tailwind CSS v3.3.0.
     - **Recharts (2.12.0)**:
-      - **Description**: Biblioteca para gráficos interativos (<50ms), exibe métricas de transações e tokens.
+      - **Description**: Biblioteca para gráficos interativos (&lt;50ms), exibe métricas de transações e tokens.
       - **Context**: Consome dados de Oracle ADB via Fastify, estilizado por Tailwind CSS.
       - **Example**: Gráfico de linha mostra volume de transações por hora, atualizado via API /api/v1/stats.
+      - **Configuration Details**:
+        - Arquivo: Incluído em `/app/frontend/src/components/Charts.js`.
+        - Porta: N/A.
+        - Variáveis: Nenhum.
+        - Limite: Incluído no React.
+      - **Dependencies**:
+        - Serviços: Fastify (TCP 3000).
+        - Ordem: 1. Fastify, 2. Recharts.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: Incluído no React.
+      - **Monitoring Rules**:
+        - Métrica: `recharts_render_duration_ms`.
+        - Alerta: `alert: RechartsSlowRender expr: recharts_render_duration_ms > 100 for: 5m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `avg(recharts_render_duration_ms)`.
+      - **Maintenance Tasks**:
+        - Backup: Incluído no React.
+        - Atualização: Dependabot verifica Recharts semanalmente.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback recharts --to-version v2.11.0`.
+        - Condição: Falha no render de gráficos.
+        - Fallback: Recharts v2.11.0.
     - **react-joyride (2.8.0)**:
       - **Description**: Biblioteca para tutoriais interativos, melhora retenção (+20%).
       - **Context**: Guia usuários em fluxos (ex.: auth Web3, minting). Integra com Tailwind CSS para estilo.
       - **Example**: Tutorial orienta usuário a conectar carteira Phantom para autenticação.
+      - **Configuration Details**:
+        - Arquivo: `/app/frontend/src/components/Tutorial.js`.
+        - Porta: N/A.
+        - Variáveis: Nenhum.
+        - Limite: Incluído no React.
+      - **Dependencies**:
+        - Serviços: React.
+        - Ordem: 1. React, 2. react-joyride.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: Incluído no React.
+      - **Monitoring Rules**:
+        - Métrica: `joyride_completion_rate`.
+        - Alerta: `alert: LowTutorialCompletion expr: joyride_completion_rate < 0.5 for: 1d labels: { severity: "info" }`.
+        - Dashboard: Grafana query `sum(joyride_completion_rate)`.
+      - **Maintenance Tasks**:
+        - Backup: Incluído no React.
+        - Atualização: Dependabot verifica react-joyride semanalmente.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback joyride --to-version v2.7.0`.
+        - Condição: Falha no tutorial.
+        - Fallback: react-joyride v2.7.0.
     - **Nginx (1.24.0)**:
       - **Description**: Reverse proxy, gerencia tráfego HTTP (port 80, cache TTL 10s).
       - **Context**: Roteia requisições para React (port 80) e Fastify (port 3000). Integra com ModSecurity para segurança.
       - **Example**: Requisição para /dashboard é roteada ao React, com cache de 10s.
+      - **Configuration Details**:
+        - Arquivo: `/etc/nginx/nginx.conf`, `/etc/nginx/conf.d/frontend.conf`.
+        - Porta: `80`.
+        - Variáveis: Nenhum.
+        - Limite: 1 GB RAM, 1000 conexões simultâneas.
+      - **Dependencies**:
+        - Serviços: React, Fastify (TCP 3000).
+        - Ordem: 1. Nginx, 2. React, 3. Fastify.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 80/tcp`.
+        - Permissões: `chown nginx:nginx /etc/nginx -R; chmod 644 /etc/nginx/conf.d/*`.
+      - **Monitoring Rules**:
+        - Métrica: `nginx_connections_active`.
+        - Alerta: `alert: NginxOverload expr: nginx_connections_active > 800 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(nginx_connections_active)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/nginx_conf`).
+        - Logrotate: `/var/log/nginx/*.log` (diário, 7 dias retention).
+        - Auto-scaling: Adicionar A1.Flex se conexões &gt;800.
+        - Atualização: `apt upgrade nginx` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install nginx=1.23.0`.
+        - Condição: Falha em `/health` (HTTP 502 por 2min).
+        - Fallback: Nginx v1.23.0.
     - **ModSecurity (3.0.12)**:
-      - **Description**: WAF para proteção de APIs (~500 req/s, OWASP rules).
+      - **Description**: WAF para proteção de APIs (\~500 req/s, OWASP rules).
       - **Context**: Filtra requisições maliciosas (ex.: SQL injection). Logs enviados ao Loki via Promtail, monitorados por Wazuh.
       - **Example**: Bloqueia tentativa de XSS em /api/form, registra evento no Loki.
+      - **Configuration Details**:
+        - Arquivo: `/etc/modsecurity/modsecurity.conf`, `/etc/nginx/modsecurity/owasp.rules`.
+        - Porta: Integrado ao Nginx (80).
+        - Variáveis: `SecRuleEngine On`.
+        - Limite: 200 MB RAM.
+      - **Dependencies**:
+        - Serviços: Nginx.
+        - Ordem: 1. Nginx, 2. ModSecurity.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: Incluído no Nginx.
+        - Permissões: `chown nginx:nginx /etc/modsecurity -R; chmod 644 /etc/modsecurity/*.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `modsecurity_blocked_requests_total`.
+        - Alerta: `alert: HighModSecurityBlocks expr: rate(modsecurity_blocked_requests_total[5m]) > 10 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(modsecurity_blocked_requests_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/modsecurity_rules`).
+        - Logrotate: `/var/log/modsecurity/audit.log` (diário, 7 dias retention).
+        - Atualização: OWASP rules atualizadas mensalmente.
+      - **Rollback Strategy**:
+        - Rollback: Reverter OWASP rules para versão anterior.
+        - Condição: Falso positivo bloqueia &gt;5% requisições.
+        - Fallback: OWASP rules v3.0.11.
     - **Promtail**:
       - **Description**: Agente para coleta de logs, envia ao Loki (TCP 3100).
       - **Context**: Coleta logs de React, Fastify, Nginx, ModSecurity. Integra com Fluentd (EU-LOG-01) para agregação.
       - **Example**: Log de erro 500 em /api/tokens é enviado ao Loki, visualizado no Grafana.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
     - **PM2**:
       - **Description**: Gerenciador de processos Node.js, mantém Fastify e React ativos.
       - **Context**: Reinicia processos em falhas, monitorado por Prometheus (métricas pm2_process_cpu).
-      - **Example**: Reinicia Fastify após crash, mantém ~25,000 req/s.
+      - **Example**: Reinicia Fastify após crash, mantém \~25,000 req/s.
+      - **Configuration Details**:
+        - Arquivo: `/app/pm2.config.js`.
+        - Porta: N/A.
+        - Variáveis: `PM2_HOME=/app/.pm2`.
+        - Limite: 200 MB RAM.
+      - **Dependencies**:
+        - Serviços: Fastify, React.
+        - Ordem: 1. Fastify/React, 2. PM2.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: `chown app:app /app/.pm2 -R; chmod 600 /app/pm2.config.js`.
+      - **Monitoring Rules**:
+        - Métrica: `pm2_process_cpu_percent`.
+        - Alerta: `alert: PM2HighCPU expr: pm2_process_cpu_percent > 80 for: 5m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `avg(pm2_process_cpu_percent) by (process)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/pm2_config`).
+        - Logrotate: `/app/.pm2/logs/*.log` (diário, 7 dias retention).
+        - Atualização: `npm update pm2` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `npm install pm2@5.3.0`.
+        - Condição: Falha no gerenciamento de processos.
+        - Fallback: PM2 v5.3.0.
   - **E2.1.Micro 1** (1 OCPU, 1 GB RAM):
     - **Redis (7.2.0)**:
-      - **Description**: Cache in-memory (~100,000 ops/s, allkeys-lru), armazena respostas de APIs e sessões.
+      - **Description**: Cache in-memory (\~100,000 ops/s, allkeys-lru), armazena respostas de APIs e sessões.
       - **Context**: Usado por Fastify para cache (TTL 1h). Integra com Backend e Solana.
-      - **Example**: Cacheia resposta de GET /api/tokens, reduzindo latência de ~10ms para ~1ms.
+      - **Example**: Cacheia resposta de GET /api/tokens, reduzindo latência de \~10ms para \~1ms.
+      - **Configuration Details**:
+        - Arquivo: `/etc/redis/redis.conf`.
+        - Porta: `6379`.
+        - Variáveis: `maxmemory 512mb`, `allkeys-lru`.
+        - Limite: 512 MB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Redis.
+      - **Security Settings**:
+        - Segredo: `secret/redis_password` no Vault.
+        - Firewall: `ufw allow 6379/tcp`.
+        - Permissões: `chown redis:redis /etc/redis -R; chmod 600 /etc/redis/redis.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `redis_memory_used_bytes`.
+        - Alerta: `alert: RedisHighMemory expr: redis_memory_used_bytes > 500e6 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `redis_memory_used_bytes / redis_memory_max_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/redis_dump.rdb`).
+        - Logrotate: `/var/log/redis/redis.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade redis` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install redis=7.1.0`.
+        - Condição: Falha no cache (conexões recusadas).
+        - Fallback: Redis v7.1.0.
   - **E2.1.Micro 2**:
     - **MinIO**:
       - **Description**: Armazenamento de objetos para assets estáticos (port 9000, 10 GB).
       - **Context**: Armazena imagens, CSS, JS. Acessado por Nginx, backups gerenciados por Ansible.
       - **Example**: Serve logo da plataforma via URL /assets/logo.png.
+      - **Configuration Details**:
+        - Arquivo: `/etc/minio/config.json`.
+        - Porta: `9000`.
+        - Variáveis: `MINIO_ROOT_USER=admin`, `MINIO_ROOT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM, 10 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. MinIO.
+      - **Security Settings**:
+        - Segredo: `secret/minio_root_password` no Vault.
+        - Firewall: `ufw allow 9000/tcp`.
+        - Permissões: `chown minio:minio /etc/minio -R; chmod 600 /etc/minio/config.json`.
+      - **Monitoring Rules**:
+        - Métrica: `minio_storage_used_bytes`.
+        - Alerta: `alert: MinIOFull expr: minio_storage_used_bytes > 9e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `minio_storage_used_bytes / minio_storage_total_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/minio_data`).
+        - Logrotate: `/var/log/minio.log` (diário, 7 dias retention).
+        - Atualização: `minio update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter MinIO para versão anterior.
+        - Condição: Falha no acesso aos objetos.
+        - Fallback: MinIO v2024-04-01.
 - **Load Balancer**: Flexible (/health, Weighted Round Robin)
 - **Integration**:
-  - Sends requests to Backend (TCP 3000, 10.0.2.0/24), Solana (TCP 8899, 10.0.3.0/24)
-  - Publishes messages to RabbitMQ (buy_queue, TCP 5672, 10.0.5.0/24)
+  - Sends requests to Backend (TCP 3000, 10.0.2.0/24), Solana (TCP 8899, 10.0.3.0/24).
+  - Publishes messages to RabbitMQ (buy_queue, TCP 5672, 10.0.5.0/24).
 
 ## 2. Backend (2 accounts: EU-BE-01, NA-BE-01)
 
@@ -72,37 +360,184 @@
 - **VMs per account**:
   - **A1.Flex**:
     - **Fastify (4.28.0)**:
-      - **Description**: Servidor Node.js para APIs críticas (/api/v1/create, /api/v1/buy, /api/v1/auth, ~10,000 req/s).
+      - **Description**: Servidor Node.js para APIs críticas (/api/v1/create, /api/v1/buy, /api/v1/auth, \~10,000 req/s).
       - **Context**: Consulta Oracle ADB (TCP 1521), verifica auth Web3 (@solana/web3.js), publica mensagens ao RabbitMQ (buy_queue). Monitorado por OpenTelemetry, logs ao Loki.
       - **Example**: POST /api/v1/buy registra transação, envia à Solana via RabbitMQ.
+      - **Configuration Details**:
+        - Arquivo: `/app/config/fastify.js` (ex.: `{ port: 3000, host: '0.0.0.0' }`).
+        - Porta: `3000`.
+        - Variáveis: `NODE_ENV=production`, `DB_HOST=adb_host`, `RABBITMQ_URL=amqp://rabbitmq:5672`.
+        - Limite: 1 GB RAM via PM2 (`--max-memory-restart 1G`).
+      - **Dependencies**:
+        - Serviços: Oracle ADB (TCP 1521), Redis (TCP 6379), RabbitMQ (TCP 5672).
+        - Ordem: 1. Redis, 2. Oracle ADB, 3. RabbitMQ, 4. Fastify.
+      - **Security Settings**:
+        - Segredo: `secret/fastify/adb` no Vault.
+        - Firewall: `ufw allow 3000/tcp`.
+        - Permissões: `chown app:app /app/config -R; chmod 600 /app/config/fastify.js`.
+      - **Monitoring Rules**:
+        - Métrica: `http_requests_total{job="fastify", endpoint="/api/v1/buy"}`.
+        - Alerta: `alert: FastifyHighLatency expr: rate(http_request_duration_seconds[5m]) > 0.05 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `avg(rate(http_request_duration_seconds[5m])) by (endpoint)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 02:00 UTC (`/backups/fastify_logs`).
+        - Logrotate: `/var/log/fastify.log` (diário, 7 dias retention).
+        - Auto-scaling: Adicionar A1.Flex se CPU &gt;70% por 5min.
+        - Atualização: Dependabot verifica Fastify semanalmente.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback fastify --to-version v4.28.0`.
+        - Condição: Falha em `/health` (HTTP 500 por 2min).
+        - Fallback: Fastify v4.28.0.
     - **Promtail**:
       - **Description**: Coleta logs de Fastify e PM2, envia ao Loki (TCP 3100).
       - **Context**: Integra com Fluentd (EU-LOG-01) e Wazuh (EU-SEC-01) para análise de segurança.
       - **Example**: Log de falha em /api/v1/auth é enviado ao Loki, analisado por Wazuh.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
     - **PM2**:
       - **Description**: Gerencia processos Fastify, garante alta disponibilidade.
       - **Context**: Monitorado por Prometheus, reinicia Fastify em falhas.
-      - **Example**: Mantém API /api/v1/create ativa durante pico de ~10,000 req/s.
+      - **Example**: Mantém API /api/v1/create ativa durante pico de \~10,000 req/s.
+      - **Configuration Details**:
+        - Arquivo: `/app/pm2.config.js`.
+        - Porta: N/A.
+        - Variáveis: `PM2_HOME=/app/.pm2`.
+        - Limite: 200 MB RAM.
+      - **Dependencies**:
+        - Serviços: Fastify.
+        - Ordem: 1. Fastify, 2. PM2.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: `chown app:app /app/.pm2 -R; chmod 600 /app/pm2.config.js`.
+      - **Monitoring Rules**:
+        - Métrica: `pm2_process_cpu_percent`.
+        - Alerta: `alert: PM2HighCPU expr: pm2_process_cpu_percent > 80 for: 5m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `avg(pm2_process_cpu_percent) by (process)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/pm2_config`).
+        - Logrotate: `/app/.pm2/logs/*.log` (diário, 7 dias retention).
+        - Atualização: `npm update pm2` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `npm install pm2@5.3.0`.
+        - Condição: Falha no gerenciamento de processos.
+        - Fallback: PM2 v5.3.0.
   - **E2.1.Micro 1**:
     - **Redis (7.2.0)**:
-      - **Description**: Cache para consultas Oracle ADB (~100,000 ops/s, TTL 1h).
+      - **Description**: Cache para consultas Oracle ADB (\~100,000 ops/s, TTL 1h).
       - **Context**: Usado por Fastify para reduzir latência. Integra com RabbitMQ para mensagens.
-      - **Example**: Cacheia resultado de SELECT COUNT(*) FROM transactions, evita consultas repetidas.
+      - **Example**: Cacheia resultado de SELECT COUNT(\*) FROM transactions, evita consultas repetidas.
+      - **Configuration Details**:
+        - Arquivo: `/etc/redis/redis.conf`.
+        - Porta: `6379`.
+        - Variáveis: `maxmemory 512mb`, `allkeys-lru`.
+        - Limite: 512 MB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Redis.
+      - **Security Settings**:
+        - Segredo: `secret/redis_password` no Vault.
+        - Firewall: `ufw allow 6379/tcp`.
+        - Permissões: `chown redis:redis /etc/redis -R; chmod 600 /etc/redis/redis.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `redis_memory_used_bytes`.
+        - Alerta: `alert: RedisHighMemory expr: redis_memory_used_bytes > 500e6 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `redis_memory_used_bytes / redis_memory_max_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/redis_dump.rdb`).
+        - Logrotate: `/var/log/redis/redis.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade redis` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install redis=7.1.0`.
+        - Condição: Falha no cache (conexões recusadas).
+        - Fallback: Redis v7.1.0.
   - **E2.1.Micro 2**:
     - **MinIO**:
       - **Description**: Armazena backups do Oracle ADB e dados históricos (port 9000, 10 GB).
       - **Context**: Gerenciado por Ansible, acessado por Fastify para relatórios.
       - **Example**: Armazena backup diário de transações em /backups/transactions.sql.
+      - **Configuration Details**:
+        - Arquivo: `/etc/minio/config.json`.
+        - Porta: `9000`.
+        - Variáveis: `MINIO_ROOT_USER=admin`, `MINIO_ROOT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM, 10 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. MinIO.
+      - **Security Settings**:
+        - Segredo: `secret/minio_root_password` no Vault.
+        - Firewall: `ufw allow 9000/tcp`.
+        - Permissões: `chown minio:minio /etc/minio -R; chmod 600 /etc/minio/config.json`.
+      - **Monitoring Rules**:
+        - Métrica: `minio_storage_used_bytes`.
+        - Alerta: `alert: MinIOFull expr: minio_storage_used_bytes > 9e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `minio_storage_used_bytes / minio_storage_total_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/minio_data`).
+        - Logrotate: `/var/log/minio.log` (diário, 7 dias retention).
+        - Atualização: `minio update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter MinIO para versão anterior.
+        - Condição: Falha no acesso aos objetos.
+        - Fallback: MinIO v2024-04-01.
 - **Database**:
   - **Oracle ADB (Autonomous Transaction Processing)**:
     - **Description**: Banco relacional gerenciado (40 GB per account, port 1521), armazena usuários e transações.
     - **Context**: Hospedado na OCI, acessado por Fastify, cacheado por Redis. Integra com Hyperledger Fabric para permissões off-chain. Monitorado por OCI Metrics.
-    - **Example**: Query SELECT * FROM transactions WHERE user_key = :key retorna histórico de compras.
+    - **Example**: Query SELECT \* FROM transactions WHERE user_key = :key retorna histórico de compras.
+    - **Configuration Details**:
+      - Arquivo: Gerenciado pela OCI (console).
+      - Porta: `1521`.
+      - Variáveis: `DB_USER=admin`, `DB_PASSWORD` (Vault).
+      - Limite: 40 GB storage, 1 OCPU.
+    - **Dependencies**:
+      - Serviços: Nenhum.
+      - Ordem: 1. Oracle ADB.
+    - **Security Settings**:
+      - Segredo: `secret/adb_password` no Vault.
+      - Firewall: `ufw allow 1521/tcp`.
+      - Permissões: Gerenciado pela OCI.
+    - **Monitoring Rules**:
+      - Métrica: `oci_adb_cpu_utilization`.
+      - Alerta: `alert: ADBHighCPU expr: oci_adb_cpu_utilization > 80 for: 5m labels: { severity: "critical" }`.
+      - Dashboard: Grafana query `oci_adb_cpu_utilization`.
+    - **Maintenance Tasks**:
+      - Backup: Automático pela OCI (diário).
+      - Logrotate: N/A.
+      - Atualização: Gerenciado pela OCI.
+      - Auto-scaling: N/A (Free Tier).
+    - **Rollback Strategy**:
+      - Rollback: Restaurar backup OCI.
+      - Condição: Corrupção de dados.
+      - Fallback: Último backup diário.
 - **Load Balancer**: Flexible (/health, Weighted Round Robin)
 - **Integration**:
-  - Receives requests from Frontend (TCP 3000), sends to Solana (TCP 8899)
-  - Consumes RabbitMQ messages (buy_queue, TCP 5672)
-  - Verifies Web3 auth (Phantom/Solflare signatures via @solana/web3.js)
+  - Receives requests from Frontend (TCP 3000).
+  - Sends to Solana (TCP 8899).
+  - Consumes RabbitMQ messages (buy_queue, TCP 5672).
+  - Verifies Web3 auth (Phantom/Solflare signatures via @solana/web3.js).
 
 ## 3. Solana (2 accounts: EU-SOL-01, AS-SOL-01)
 
@@ -110,35 +545,178 @@
 - **VMs per account**:
   - **A1.Flex**:
     - **Solana Validator (Solana CLI 1.18.0)**:
-      - **Description**: Processa transações Solana (~35,000 tx/h, port 8899).
+      - **Description**: Processa transações Solana (\~35,000 tx/h, port 8899).
       - **Context**: Usa Rust/Anchor para smart contracts. Integra com Backend (via @solana/web3.js) e RabbitMQ (buy_queue). Logs ao Loki via Promtail.
-      - **Example**: Valida transação de compra de 100 tokens, confirmada em ~10ms.
+      - **Example**: Valida transação de compra de 100 tokens, confirmada em \~10ms.
+      - **Configuration Details**:
+        - Arquivo: `/solana/config/validator.yml`.
+        - Porta: `8899`.
+        - Variáveis: `SOLANA_KEYPAIR` (Vault).
+        - Limite: 4 GB RAM, 100 GB storage.
+      - **Dependencies**:
+        - Serviços: Redis (TCP 6379), Rust, Anchor.
+        - Ordem: 1. Redis, 2. Rust/Anchor, 3. Solana Validator.
+      - **Security Settings**:
+        - Segredo: `secret/solana_keypair` no Vault.
+        - Firewall: `ufw allow 8899/tcp`.
+        - Permissões: `chown solana:solana /solana -R; chmod 600 /solana/config/validator.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `solana_block_time_ms`.
+        - Alerta: `alert: SolanaSlowBlocks expr: solana_block_time_ms > 400 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `avg(solana_block_time_ms)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/solana_ledger`).
+        - Logrotate: `/var/log/solana.log` (diário, 7 dias retention).
+        - Atualização: `solana-install update` mensal.
+        - Snapshot: Diário às 00:00 UTC.
+      - **Rollback Strategy**:
+        - Rollback: `solana-validator --reset` com snapshot anterior.
+        - Condição: Falha na validação de blocos.
+        - Fallback: Último snapshot.
     - **Rust (1.80.0)**:
       - **Description**: Linguagem para smart contracts Solana.
       - **Context**: Usado com Anchor para criar/gestão de tokens (@solana/spl-token). Integra com Solana Validator.
       - **Example**: Smart contract mint 1000 tokens, executado pelo Validator.
+      - **Configuration Details**:
+        - Arquivo: `/app/solana/contracts/Cargo.toml`.
+        - Porta: N/A.
+        - Variáveis: `RUSTUP_HOME=/app/.rustup`.
+        - Limite: 1 GB RAM durante compilação.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Rust.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: `chown solana:solana /app/solana -R; chmod 644 /app/solana/contracts/Cargo.toml`.
+      - **Monitoring Rules**:
+        - Métrica: `rust_compile_duration_seconds`.
+        - Alerta: `alert: RustCompileFailure expr: rust_compile_duration_seconds > 60 for: 1m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `sum(rust_compile_duration_seconds)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO semanal (`/backups/rust_contracts`).
+        - Atualização: `rustup update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `rustup install 1.79.0`.
+        - Condição: Falha na compilação.
+        - Fallback: Rust v1.79.0.
     - **Anchor (0.30.0)**:
-      - **Description**: Framework para smart contracts Solana (~10% menos gas).
+      - **Description**: Framework para smart contracts Solana (\~10% menos gas).
       - **Context**: Reduz custos de transações, usado com Rust no Validator.
       - **Example**: Define lógica de minting em programa Anchor, deployado via Solana CLI.
+      - **Configuration Details**:
+        - Arquivo: `/app/solana/contracts/Anchor.toml`.
+        - Porta: N/A.
+        - Variáveis: Nenhum.
+        - Limite: Incluído no Rust.
+      - **Dependencies**:
+        - Serviços: Rust.
+        - Ordem: 1. Rust, 2. Anchor.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A.
+        - Permissões: Incluído no Rust.
+      - **Monitoring Rules**:
+        - Métrica: `anchor_deploy_duration_seconds`.
+        - Alerta: `alert: AnchorDeployFailure expr: anchor_deploy_duration_seconds > 30 for: 1m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `sum(anchor_deploy_duration_seconds)`.
+      - **Maintenance Tasks**:
+        - Backup: Incluído no Rust.
+        - Atualização: `cargo install anchor-cli --version 0.29.0` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `cargo install anchor-cli --version 0.29.0`.
+        - Condição: Falha no deploy.
+        - Fallback: Anchor v0.29.0.
     - **Promtail**:
       - **Description**: Coleta logs do Validator e Rust/Anchor, envia ao Loki (TCP 3100).
       - **Context**: Integra com Fluentd e Wazuh para análise.
       - **Example**: Log de transação falhada é enviado ao Loki, visualizado no Grafana.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
   - **E2.1.Micro 1**:
     - **Solana RPC (@solana/web3.js 1.95.0, @solana/spl-token 0.4.0)**:
-      - **Description**: Endpoint RPC para interagir com Solana (~10ms, port 8899).
+      - **Description**: Endpoint RPC para interagir com Solana (\~10ms, port 8899).
       - **Context**: Usado por Backend para auth e minting. Cacheado por Redis (TTL 30min).
-      - **Example**: GET /rpc verifica saldo de carteira Phantom, retorna em ~10ms.
+      - **Example**: GET /rpc verifica saldo de carteira Phantom, retorna em \~10ms.
+      - **Configuration Details**:
+        - Arquivo: `/app/solana/rpc/config.js`.
+        - Porta: `8899`.
+        - Variáveis: `SOLANA_RPC_URL=http://validator:8899`.
+        - Limite: 500 MB RAM.
+      - **Dependencies**:
+        - Serviços: Solana Validator (TCP 8899), Redis (TCP 6379).
+        - Ordem: 1. Redis, 2. Solana Validator, 3. Solana RPC.
+      - **Security Settings**:
+        - Segredo: `secret/solana_rpc_key` no Vault.
+        - Firewall: `ufw allow 8899/tcp`.
+        - Permissões: `chown solana:solana /app/solana/rpc -R; chmod 600 /app/solana/rpc/config.js`.
+      - **Monitoring Rules**:
+        - Métrica: `solana_rpc_request_duration_ms`.
+        - Alerta: `alert: SolanaRPCHighLatency expr: rate(solana_rpc_request_duration_ms[5m]) > 20 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `avg(rate(solana_rpc_request_duration_ms[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/solana_rpc_config`).
+        - Logrotate: `/var/log/solana_rpc.log` (diário, 7 dias retention).
+        - Atualização: `npm update @solana/web3.js` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `npm install @solana/web3.js@1.94.0`.
+        - Condição: Falha nas chamadas RPC.
+        - Fallback: @solana/web3.js v1.94.0.
   - **E2.1.Micro 2**:
     - **Redis (7.2.0)**:
-      - **Description**: Cache para respostas RPC (~100,000 ops/s, TTL 30min).
+      - **Description**: Cache para respostas RPC (\~100,000 ops/s, TTL 30min).
       - **Context**: Reduz latência de chamadas RPC. Monitorado por Prometheus.
       - **Example**: Cacheia resultado de /rpc/getBalance, evita chamadas repetidas.
+      - **Configuration Details**:
+        - Arquivo: `/etc/redis/redis.conf`.
+        - Porta: `6379`.
+        - Variáveis: `maxmemory 512mb`, `allkeys-lru`.
+        - Limite: 512 MB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Redis.
+      - **Security Settings**:
+        - Segredo: `secret/redis_password` no Vault.
+        - Firewall: `ufw allow 6379/tcp`.
+        - Permissões: `chown redis:redis /etc/redis -R; chmod 600 /etc/redis/redis.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `redis_memory_used_bytes`.
+        - Alerta: `alert: RedisHighMemory expr: redis_memory_used_bytes > 500e6 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `redis_memory_used_bytes / redis_memory_max_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/redis_dump.rdb`).
+        - Logrotate: `/var/log/redis/redis.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade redis` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install redis=7.1.0`.
+        - Condição: Falha no cache (conexões recusadas).
+        - Fallback: Redis v7.1.0.
 - **Load Balancer**: Network (/rpc, TCP 8899, Least Connections), Flexible (/health)
 - **Integration**:
-  - Receives requests from Frontend/Backend (TCP 8899)
-  - Publishes logs to Fluentd (EU-LOG-01, TCP 24224)
+  - Receives requests from Frontend/Backend (TCP 8899).
+  - Publishes logs to Fluentd (EU-LOG-01, TCP 24224).
 
 ## 4. Security (1 account: EU-SEC-01)
 
@@ -149,37 +727,205 @@
       - **Description**: Gerencia chaves/segredos (Solana keys, ADB passwords, port 8200, AES-256, mTLS).
       - **Context**: Usado por Fastify, Solana Validator, Oracle ADB. Backups em MinIO, monitorado por Wazuh.
       - **Example**: Fastify acessa senha do ADB via Vault para query segura.
+      - **Configuration Details**:
+        - Arquivo: `/etc/vault/vault.hcl`.
+        - Porta: `8200`.
+        - Variáveis: `VAULT_ADDR=http://vault:8200`.
+        - Limite: 1 GB RAM, 5 GB storage.
+      - **Dependencies**:
+        - Serviços: MinIO (TCP 9000).
+        - Ordem: 1. MinIO, 2. Vault.
+      - **Security Settings**:
+        - Segredo: `secret/vault_root_token` (inicialização manual).
+        - Firewall: `ufw allow 8200/tcp`.
+        - Permissões: `chown vault:vault /etc/vault -R; chmod 600 /etc/vault/vault.hcl`.
+      - **Monitoring Rules**:
+        - Métrica: `vault_core_unsealed`.
+        - Alerta: `alert: VaultSealed expr: vault_core_unsealed == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `vault_core_unsealed`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/vault_data`).
+        - Logrotate: `/var/log/vault.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade vault` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install vault=1.16.0`.
+        - Condição: Falha no acesso aos segredos.
+        - Fallback: Vault v1.16.0.
     - **Suricata (7.0.0)**:
-      - **Description**: IDS/IPS, detecta intrusões (<200ms, OWASP rules).
+      - **Description**: IDS/IPS, detecta intrusões (&lt;200ms, OWASP rules).
       - **Context**: Analisa tráfego (10.0.4.0/24), integra com Wazuh para alertas. Logs ao Loki.
       - **Example**: Detecta tentativa de brute-force em /api/v1/auth, alerta no Wazuh.
+      - **Configuration Details**:
+        - Arquivo: `/etc/suricata/suricata.yaml`.
+        - Porta: N/A.
+        - Variáveis: `HOME_NET=10.0.0.0/16`.
+        - Limite: 500 MB RAM.
+      - **Dependencies**:
+        - Serviços: Wazuh (TCP 1514).
+        - Ordem: 1. Wazuh, 2. Suricata.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: N/A (tráfego interno).
+        - Permissões: `chown suricata:suricata /etc/suricata -R; chmod 644 /etc/suricata/suricata.yaml`.
+      - **Monitoring Rules**:
+        - Métrica: `suricata_alerts_total`.
+        - Alerta: `alert: SuricataHighAlerts expr: rate(suricata_alerts_total[5m]) > 5 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(suricata_alerts_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/suricata_rules`).
+        - Logrotate: `/var/log/suricata/*.log` (diário, 7 dias retention).
+        - Atualização: `suricata-update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter regras Suricata.
+        - Condição: Falso positivo bloqueia tráfego legítimo.
+        - Fallback: Suricata v6.0.0 rules.
     - **Promtail**:
       - **Description**: Coleta logs de Vault, Suricata, Wazuh, Fabric, Crowdsec.
       - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
       - **Example**: Log de acesso não autorizado ao Vault é enviado ao Loki.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
   - **E2.1.Micro 1**:
     - **Wazuh (4.9.0)**:
-      - **Description**: SIEM para análise de segurança (~100,000 eventos/hora).
+      - **Description**: SIEM para análise de segurança (\~100,000 eventos/hora).
       - **Context**: Coleta logs de Suricata, Crowdsec, Promtail. Integra com Grafana para dashboards de segurança.
       - **Example**: Identifica padrão de ataques DDoS, bloqueia IPs via Crowdsec.
+      - **Configuration Details**:
+        - Arquivo: `/var/ossec/etc/ossec.conf`.
+        - Porta: `1514` (agent), `55000` (API).
+        - Variáveis: `WAZUH_MANAGER=localhost`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Wazuh.
+      - **Security Settings**:
+        - Segredo: `secret/wazuh_api_key` no Vault.
+        - Firewall: `ufw allow 1514/tcp`, `ufw allow 55000/tcp`.
+        - Permissões: `chown wazuh:wazuh /var/ossec -R; chmod 640 /var/ossec/etc/ossec.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `wazuh_alerts_total`.
+        - Alerta: `alert: WazuhHighAlerts expr: rate(wazuh_alerts_total[5m]) > 50 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(wazuh_alerts_total[5m])) by (rule)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/wazuh_config`).
+        - Logrotate: `/var/ossec/logs/*.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade wazuh-manager` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install wazuh-manager=4.8.0`.
+        - Condição: Falha na análise de logs.
+        - Fallback: Wazuh v4.8.0.
     - **MinIO**:
       - **Description**: Armazena backups de segredos Vault (port 9000, 5 GB).
       - **Context**: Gerenciado por Ansible, acessado por Vault.
       - **Example**: Backup diário de chaves Solana em /vault/backups/keys.
+      - **Configuration Details**:
+        - Arquivo: `/etc/minio/config.json`.
+        - Porta: `9000`.
+        - Variáveis: `MINIO_ROOT_USER=admin`, `MINIO_ROOT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM, 5 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. MinIO.
+      - **Security Settings**:
+        - Segredo: `secret/minio_root_password` no Vault.
+        - Firewall: `ufw allow 9000/tcp`.
+        - Permissões: `chown minio:minio /etc/minio -R; chmod 600 /etc/minio/config.json`.
+      - **Monitoring Rules**:
+        - Métrica: `minio_storage_used_bytes`.
+        - Alerta: `alert: MinIOFull expr: minio_storage_used_bytes > 4.5e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `minio_storage_used_bytes / minio_storage_total_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/minio_data`).
+        - Logrotate: `/var/log/minio.log` (diário, 7 dias retention).
+        - Atualização: `minio update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter MinIO para versão anterior.
+        - Condição: Falha no acesso aos objetos.
+        - Fallback: MinIO v2024-04-01.
   - **E2.1.Micro 2**:
     - **Hyperledger Fabric**:
       - **Description**: Blockchain permissionada para transações off-chain e permissões (port 7051, 10 GB).
       - **Context**: Gerencia permissões de minting, integra com Backend (Fastify, TCP 7051). Logs ao Loki.
       - **Example**: Registra permissão para mint 1000 tokens, sincroniza com Solana.
+      - **Configuration Details**:
+        - Arquivo: `/etc/fabric/core.yaml`.
+        - Porta: `7051`.
+        - Variáveis: `FABRIC_CFG_PATH=/etc/fabric`.
+        - Limite: 2 GB RAM, 10 GB storage.
+      - **Dependencies**:
+        - Serviços: Fastify (TCP 3000).
+        - Ordem: 1. Fastify, 2. Hyperledger Fabric.
+      - **Security Settings**:
+        - Segredo: `secret/fabric_admin_key` no Vault.
+        - Firewall: `ufw allow 7051/tcp`.
+        - Permissões: `chown fabric:fabric /etc/fabric -R; chmod 600 /etc/fabric/core.yaml`.
+      - **Monitoring Rules**:
+        - Métrica: `fabric_transaction_count`.
+        - Alerta: `alert: FabricFailure expr: rate(fabric_transaction_count[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(fabric_transaction_count[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/fabric_ledger`).
+        - Logrotate: `/var/log/fabric.log` (diário, 7 dias retention).
+        - Atualização: `fabric update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Restaurar backup do ledger.
+        - Condição: Falha nas transações off-chain.
+        - Fallback: Último backup.
     - **Crowdsec (1.5.0)**:
-      - **Description**: Firewall colaborativo, protege Web3 auth (~50 req/s per IP, port 8080).
+      - **Description**: Firewall colaborativo, protege Web3 auth (\~50 req/s per IP, port 8080).
       - **Context**: Monitora logs Fastify, bloqueia IPs via UFW. Integra com Wazuh.
       - **Example**: Bloqueia IP após 50 tentativas falhas em /api/v1/auth.
+      - **Configuration Details**:
+        - Arquivo: `/etc/crowdsec/config.yaml`.
+        - Porta: `8080`.
+        - Variáveis: `CROWDSEC_API_KEY` (Vault).
+        - Limite: 500 MB RAM.
+      - **Dependencies**:
+        - Serviços: Wazuh (TCP 1514), Fastify (TCP 3000).
+        - Ordem: 1. Wazuh, 2. Fastify, 3. Crowdsec.
+      - **Security Settings**:
+        - Segredo: `secret/crowdsec_api_key` no Vault.
+        - Firewall: `ufw allow 8080/tcp`.
+        - Permissões: `chown crowdsec:crowdsec /etc/crowdsec -R; chmod 600 /etc/crowdsec/config.yaml`.
+      - **Monitoring Rules**:
+        - Métrica: `crowdsec_banned_ips_total`.
+        - Alerta: `alert: CrowdsecHighBans expr: rate(crowdsec_banned_ips_total[5m]) > 10 for: 5m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `sum(rate(crowdsec_banned_ips_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/crowdsec_config`).
+        - Logrotate: `/var/log/crowdsec.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade crowdsec` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install crowdsec=1.4.0`.
+        - Condição: Falso positivo bloqueia IPs legítimos.
+        - Fallback: Crowdsec v1.4.0.
 - **Load Balancer**: Flexible (/status)
 - **Integration**:
-  - Vault accessed by EU-MGMT-01 (TCP 8200)
-  - Fabric integrates with Backend (TCP 7051)
-  - Crowdsec monitors Fastify logs, bans IPs via UFW
+  - Vault accessed by EU-MGMT-01 (TCP 8200).
+  - Fabric integrates with Backend (TCP 7051).
+  - Crowdsec monitors Fastify logs, bans IPs via UFW.
 
 ## 5. Monitoring (1 account: EU-MON-01)
 
@@ -188,178 +934,789 @@
   - **A1.Flex**:
     - **Prometheus (2.54.0)**:
       - **Description**: Coleta métricas (~10,000 métricas/s, port 9090).
-      - **Context**: Coleta métricas de Fastify, Redis, Solana, Vault, etc. Integra com Grafana.
-      - **Example**: Métrica fastify_request_duration_seconds mostra latência de /api/v1/buy.
+      - **Context**: Coleta métricas de Fastify, Redis, Solana, Vault, etc. Integra com Grafana para visualização.
+      - **Example**: Métrica `fastify_request_duration_seconds` mostra latência de /api/v1/buy (~50ms).
+      - **Configuration Details**:
+        - Arquivo: `/etc/prometheus/prometheus.yml`.
+        - Porta: `9090`.
+        - Variáveis: `SCRAPE_INTERVAL=15s`, `RETENTION=15d`.
+        - Limite: 2 GB RAM, 10 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Prometheus.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9090/tcp`.
+        - Permissões: `chown prometheus:prometheus /etc/prometheus -R; chmod 644 /etc/prometheus/prometheus.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `prometheus_scrape_duration_seconds`.
+        - Alerta: `alert: PrometheusScrapeFailure expr: rate(prometheus_scrape_duration_seconds[5m]) > 10 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(prometheus_scrape_duration_seconds[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/prometheus_data`).
+        - Logrotate: `/var/log/prometheus.log` (diário, 7 dias retention).
+        - Auto-scaling: Adicionar A1.Flex se CPU >80% por 5min.
+        - Atualização: `apt upgrade prometheus` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install prometheus=2.53.0`.
+        - Condição: Falha na coleta de métricas (HTTP 500 em /metrics).
+        - Fallback: Prometheus v2.53.0.
     - **Grafana (11.2.0)**:
       - **Description**: Dashboards para métricas, logs, traces (port 3000).
-      - **Context**: Visualiza dados de Prometheus, Loki, Jaeger. Integra com Wazuh para segurança.
+      - **Context**: Visualiza dados de Prometheus, Loki, Jaeger. Integra com Wazuh para dashboards de segurança.
       - **Example**: Dashboard exibe throughput de transações Solana (~70,000 tx/h).
+      - **Configuration Details**:
+        - Arquivo: `/etc/grafana/grafana.ini`.
+        - Porta: `3000`.
+        - Variáveis: `GF_AUTH_ANONYMOUS_ENABLED=false`, `GF_SERVER_ROOT_URL=http://grafana:3000`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Prometheus (TCP 9090), Loki (TCP 3100), Jaeger (TCP 16686).
+        - Ordem: 1. Prometheus, 2. Loki, 3. Jaeger, 4. Grafana.
+      - **Security Settings**:
+        - Segredo: `secret/grafana_admin_password` no Vault.
+        - Firewall: `ufw allow 3000/tcp`.
+        - Permissões: `chown grafana:grafana /etc/grafana -R; chmod 640 /etc/grafana/grafana.ini`.
+      - **Monitoring Rules**:
+        - Métrica: `grafana_dashboard_load_duration_ms`.
+        - Alerta: `alert: GrafanaSlowDashboard expr: grafana_dashboard_load_duration_ms > 500 for: 5m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `avg(grafana_dashboard_load_duration_ms)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 02:00 UTC (`/backups/grafana_dashboards`).
+        - Logrotate: `/var/log/grafana.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade grafana` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install grafana=11.1.0`.
+        - Condição: Falha no carregamento de dashboards (HTTP 502).
+        - Fallback: Grafana v11.1.0.
     - **Jaeger (1.60.0)**:
       - **Description**: Visualiza traces distribuídos (~1000 traces/min).
-      - **Context**: Usado com OpenTelemetry para debug (ex.: latência Frontend → Backend → Solana).
-      - **Example**: Trace mostra gargalo em /api/v1/buy (10ms no Oracle ADB).
+      - **Context**: Usado com OpenTelemetry para debug de latência (ex.: Frontend → Backend → Solana).
+      - **Example**: Trace identifica gargalo em /api/v1/buy (10ms no Oracle ADB).
+      - **Configuration Details**:
+        - Arquivo: `/etc/jaeger/config.yaml`.
+        - Porta: `16686` (UI), `4317` (collector).
+        - Variáveis: `SPAN_STORAGE_TYPE=badger`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: OpenTelemetry (TCP 4317).
+        - Ordem: 1. OpenTelemetry, 2. Jaeger.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 16686/tcp`, `ufw allow 4317/tcp`.
+        - Permissões: `chown jaeger:jaeger /etc/jaeger -R; chmod 644 /etc/jaeger/config.yaml`.
+      - **Monitoring Rules**:
+        - Métrica: `jaeger_traces_processed_total`.
+        - Alerta: `alert: JaegerTraceFailure expr: rate(jaeger_traces_processed_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(jaeger_traces_processed_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 03:00 UTC (`/backups/jaeger_data`).
+        - Logrotate: `/var/log/jaeger.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade jaeger` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install jaeger=1.59.0`.
+        - Condição: Falha na coleta de traces.
+        - Fallback: Jaeger v1.59.0.
     - **Promtail**:
-      - **Description**: Coleta logs de Prometheus, Grafana, Jaeger, RabbitMQ.
-      - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
+      - **Description**: Coleta logs de Prometheus, Grafana, Jaeger, RabbitMQ, envia ao Loki (TCP 3100).
+      - **Context**: Integra com Fluentd (EU-LOG-01) para agregação de logs.
       - **Example**: Log de erro no RabbitMQ é enviado ao Loki, visualizado no Grafana.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 04:00 UTC (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
+    - **OpenTelemetry Collector (0.107.0)**:
+      - **Description**: Coleta traces e métricas, envia ao Jaeger e Prometheus (~1000 spans/s).
+      - **Context**: Instrumenta Fastify e Solana para tracing distribuído.
+      - **Example**: Trace de /api/v1/buy mostra latência de 15ms no Backend.
+      - **Configuration Details**:
+        - Arquivo: `/etc/otelcol/config.yaml`.
+        - Porta: `4317` (gRPC), `4318` (HTTP).
+        - Variáveis: `OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:4317`.
+        - Limite: 500 MB RAM.
+      - **Dependencies**:
+        - Serviços: Jaeger (TCP 4317), Prometheus (TCP 9090).
+        - Ordem: 1. Jaeger, 2. Prometheus, 3. OpenTelemetry.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 4317/tcp`, `ufw allow 4318/tcp`.
+        - Permissões: `chown otel:otel /etc/otelcol -R; chmod 644 /etc/otelcol/config.yaml`.
+      - **Monitoring Rules**:
+        - Métrica: `otelcol_spans_processed_total`.
+        - Alerta: `alert: OpenTelemetryFailure expr: rate(otelcol_spans_processed_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(otelcol_spans_processed_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/otelcol_config`).
+        - Logrotate: `/var/log/otelcol.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade otelcol` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install otelcol=0.106.0`.
+        - Condição: Falha na coleta de spans.
+        - Fallback: OpenTelemetry v0.106.0.
   - **E2.1.Micro 1**:
     - **Prometheus (2.54.0)**:
-      - **Description**: Réplica do Prometheus para redundância.
+      - **Description**: Réplica do Prometheus para redundância (~10,000 métricas/s).
       - **Context**: Garante alta disponibilidade, coleta métricas idênticas ao Prometheus principal.
-      - **Example**: Assume coleta de métricas se A1.Flex falhar.
+      - **Example**: Assume coleta se A1.Flex falhar, mantém métricas de Fastify.
+      - **Configuration Details**:
+        - Arquivo: `/etc/prometheus/prometheus.yml`.
+        - Porta: `9090`.
+        - Variáveis: `SCRAPE_INTERVAL=15s`, `RETENTION=7d`.
+        - Limite: 1 GB RAM, 5 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Prometheus.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9090/tcp`.
+        - Permissões: `chown prometheus:prometheus /etc/prometheus -R; chmod 644 /etc/prometheus/prometheus.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `prometheus_scrape_duration_seconds`.
+        - Alerta: `alert: PrometheusScrapeFailure expr: rate(prometheus_scrape_duration_seconds[5m]) > 10 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(prometheus_scrape_duration_seconds[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/prometheus_replica_data`).
+        - Logrotate: `/var/log/prometheus.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade prometheus` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install prometheus=2.53.0`.
+        - Condição: Falha na coleta de métricas.
+        - Fallback: Prometheus v2.53.0.
   - **E2.1.Micro 2**:
-    - **RabbitMQ (3.12.0)**:
-      - **Description**: Fila de mensagens (buy_queue, ~10,000 mensagens/h, port 5672).
-      - **Context**: Conecta Frontend/Backend/Solana. Monitorado por Prometheus.
-      - **Example**: Mensagem de compra (POST /api/v1/buy) é enfileirada, processada pelo Solana Validator.
-    - **OpenTelemetry (0.52.0)**:
-      - **Description**: Coleta traces distribuídos (port 4317, amostragem 10%).
-      - **Context**: Usado por Fastify, React, Solana RPC. Envia traces ao Jaeger, métricas ao Prometheus.
-      - **Example**: Registra latência de auth Web3, correlaciona com logs no Loki.
-- **Load Balancer**: Flexible (/metrics)
+    - **RabbitMQ (3.13.0)**:
+      - **Description**: Fila de mensagens para transações (buy_queue, ~10,000 msg/s, port 5672).
+      - **Context**: Recebe mensagens do Backend, envia ao Solana. Monitorado por Prometheus.
+      - **Example**: Mensagem de compra (100 tokens) é enfileirada, processada em ~5ms.
+      - **Configuration Details**:
+        - Arquivo: `/etc/rabbitmq/rabbitmq.conf`.
+        - Porta: `5672` (AMQP), `15672` (management).
+        - Variáveis: `RABBITMQ_DEFAULT_USER=admin`, `RABBITMQ_DEFAULT_PASS` (Vault).
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. RabbitMQ.
+      - **Security Settings**:
+        - Segredo: `secret/rabbitmq_password` no Vault.
+        - Firewall: `ufw allow 5672/tcp`, `ufw allow 15672/tcp`.
+        - Permissões: `chown rabbitmq:rabbitmq /etc/rabbitmq -R; chmod 600 /etc/rabbitmq/rabbitmq.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `rabbitmq_queue_messages`.
+        - Alerta: `alert: RabbitMQQueueFull expr: rabbitmq_queue_messages > 10000 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rabbitmq_queue_messages) by (queue)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/rabbitmq_config`).
+        - Logrotate: `/var/log/rabbitmq/*.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade rabbitmq-server` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install rabbitmq-server=3.12.0`.
+        - Condição: Falha no processamento de mensagens.
+        - Fallback: RabbitMQ v3.12.0.
+- **Load Balancer**: Flexible (/status)
 - **Integration**:
-  - Grafana accesses Loki (TCP 3100, 10.0.8.0/24) and Jaeger (/traces)
-  - RabbitMQ serves Frontend/Backend (TCP 5672)
-  - Prometheus monitors all subnets
+  - Prometheus/Grafana accessed by EU-MGMT-01 (TCP 9090, 3000).
+  - RabbitMQ receives messages from Backend (TCP 5672), sends to Solana (TCP 8899).
 
 ## 6. Management (1 account: EU-MGMT-01)
 
 - **Subnet**: 10.0.6.0/24 (private)
 - **VMs**:
   - **A1.Flex**:
-    - **Ansible**:
-      - **Description**: Orquestra deploys e configurações.
-      - **Context**: Gerencia VMs (Frontend, Backend, Solana, etc.). Integra com ArgoCD para GitOps.
-      - **Example**: Playbook atualiza Fastify em EU-BE-01, aplica via SSH.
+    - **Ansible (2.17.0)**:
+      - **Description**: Orquestração de infraestrutura (~45 VMs, port 22).
+      - **Context**: Gerencia deploy de Fastify, Solana, Vault, backups em MinIO. Integra com Vault para segredos.
+      - **Example**: Playbook deploy_fastify.yml atualiza Backend em EU-BE-01.
+      - **Configuration Details**:
+        - Arquivo: `/etc/ansible/ansible.cfg`, `/ansible/playbooks/*`.
+        - Porta: `22` (SSH).
+        - Variáveis: `ANSIBLE_VAULT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Vault (TCP 8200).
+        - Ordem: 1. Vault, 2. Ansible.
+      - **Security Settings**:
+        - Segredo: `secret/ansible_vault_password` no Vault.
+        - Firewall: `ufw allow 22/tcp`.
+        - Permissões: `chown ansible:ansible /etc/ansible -R; chmod 600 /etc/ansible/ansible.cfg`.
+      - **Monitoring Rules**:
+        - Métrica: `ansible_playbook_duration_seconds`.
+        - Alerta: `alert: AnsiblePlaybookFailure expr: ansible_playbook_duration_seconds > 300 for: 1m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(ansible_playbook_duration_seconds) by (playbook)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/ansible_playbooks`).
+        - Logrotate: `/var/log/ansible.log` (diário, 7 dias retention).
+        - Atualização: `pip install ansible==2.17.0` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `pip install ansible==2.16.0`.
+        - Condição: Falha na execução de playbooks.
+        - Fallback: Ansible v2.16.0.
     - **ArgoCD (2.12.0)**:
-      - **Description**: GitOps para deploys contínuos (Canary 10%).
-      - **Context**: Sincroniza manifests com VMs. Usa Sigstore para assinar imagens Docker.
-      - **Example**: Deploy canary de Fastify v4.28.1, rollback se falhar.
-    - **Rasa (3.6.0)**:
-      - **Description**: Chatbot para suporte (~98% acurácia, intents fees, refund_status).
-      - **Context**: Integra com Telegram/Discord Bots, responde a perguntas de usuários. Logs ao Loki.
-      - **Example**: Usuário pergunta "status do reembolso", Rasa responde com dados de Oracle ADB.
-    - **Sigstore (Cosign 2.4.0)**:
-      - **Description**: Assina imagens Docker para segurança.
-      - **Context**: Usado por ArgoCD para verificar imagens (Fastify, React). Integra com Trivy.
-      - **Example**: Assina imagem fastify:latest, garante integridade no deploy.
-    - **Telegram/Discord Bots**:
-      - **Description**: Notificam alertas e interagem com usuários.
-      - **Context**: Usa Telegraf para métricas, integra com Rasa para suporte. Alertas de Prometheus/Wazuh.
-      - **Example**: Notifica "Erro 500 em /api/v1/buy" no Telegram.
+      - **Description**: CI/CD para aplicações (~10 deploys/dia, port 8080).
+      - **Context**: Gerencia deploys de React, Fastify, Solana. Integra com GitHub e Vault.
+      - **Example**: Deploy de React v18.3.0 para EU-FE-01 via `argocd app sync react`.
+      - **Configuration Details**:
+        - Arquivo: `/etc/argocd/argocd-cm.yaml`.
+        - Porta: `8080`.
+        - Variáveis: `ARGOCD_SERVER=argocd:8080`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Vault (TCP 8200).
+        - Ordem: 1. Vault, 2. ArgoCD.
+      - **Security Settings**:
+        - Segredo: `secret/argocd_admin_password` no Vault.
+        - Firewall: `ufw allow 8080/tcp`.
+        - Permissões: `chown argocd:argocd /etc/argocd -R; chmod 644 /etc/argocd/argocd-cm.yaml`.
+      - **Monitoring Rules**:
+        - Métrica: `argocd_app_sync_duration_seconds`.
+        - Alerta: `alert: ArgoCDDeployFailure expr: argocd_app_sync_duration_seconds > 300 for: 1m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(argocd_app_sync_duration_seconds) by (app)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/argocd_config`).
+        - Logrotate: `/var/log/argocd.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade argocd` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `argocd app rollback <app> --to-version <previous>`.
+        - Condição: Falha no deploy (status Degraded).
+        - Fallback: ArgoCD v2.11.0.
     - **Promtail**:
-      - **Description**: Coleta logs de Ansible, ArgoCD, Rasa, bots.
-      - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
-      - **Example**: Log de falha no deploy ArgoCD é enviado ao Loki.
+      - **Description**: Coleta logs de Ansible, ArgoCD, Jenkins, envia ao Loki (TCP 3100).
+      - **Context**: Integra com Fluentd para agregação de logs.
+      - **Example**: Log de falha no deploy Fastify é enviado ao Loki.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
   - **E2.1.Micro 1**:
-    - **Redis (7.2.0)**:
-      - **Description**: Cache para estados de bots (~100,000 ops/s).
-      - **Context**: Usado por Rasa e Telegram/Discord Bots.
-      - **Example**: Armazena estado de conversa do Rasa, reduz latência de resposta.
+    - **Jenkins (2.426.0)**:
+      - **Description**: Automação de CI/CD (~5 builds/h, port 8080).
+      - **Context**: Compila React, Fastify, Solana. Integra com ArgoCD para deploys.
+      - **Example**: Build de React dispara deploy via ArgoCD após testes.
+      - **Configuration Details**:
+        - Arquivo: `/var/jenkins_home/config.xml`.
+        - Porta: `8080`.
+        - Variáveis: `JENKINS_HOME=/var/jenkins_home`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: ArgoCD (TCP 8080).
+        - Ordem: 1. ArgoCD, 2. Jenkins.
+      - **Security Settings**:
+        - Segredo: `secret/jenkins_admin_password` no Vault.
+        - Firewall: `ufw allow 8080/tcp`.
+        - Permissões: `chown jenkins:jenkins /var/jenkins_home -R; chmod 600 /var/jenkins_home/config.xml`.
+      - **Monitoring Rules**:
+        - Métrica: `jenkins_build_duration_seconds`.
+        - Alerta: `alert: JenkinsBuildFailure expr: jenkins_build_duration_seconds > 300 for: 1m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(jenkins_build_duration_seconds) by (job)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/jenkins_config`).
+        - Logrotate: `/var/log/jenkins.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade jenkins` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install jenkins=2.425.0`.
+        - Condição: Falha nos builds.
+        - Fallback: Jenkins v2.425.0.
   - **E2.1.Micro 2**:
-    - **Scorecard (5.0.0)**:
-      - **Description**: Avalia segurança de repositórios (score >8).
-      - **Context**: Analisa código no GitHub, alerta via Telegram/Discord. Integra com Trivy.
-      - **Example**: Detecta dependência vulnerável no repositório, notifica equipe.
-    - **Trivy (0.55.0)**:
-      - **Description**: Escaneia imagens Docker, rejeita vulnerabilidades críticas.
-      - **Context**: Usado por ArgoCD antes de deploys. Logs ao Loki.
-      - **Example**: Rejeita imagem com CVE crítico, impede deploy no Frontend.
     - **MinIO**:
-      - **Description**: Armazena playbooks Ansible e artefatos (port 9000, 5 GB).
-      - **Context**: Acessado por Ansible/ArgoCD.
-      - **Example**: Armazena playbook.yml para deploy do Fastify.
-- **Load Balancer**: Flexible (/admin)
+      - **Description**: Armazena backups de playbooks Ansible e configs Jenkins (port 9000, 5 GB).
+      - **Context**: Gerenciado por Ansible, acessado por ArgoCD e Jenkins.
+      - **Example**: Backup de playbooks em /backups/ansible_playbooks.
+      - **Configuration Details**:
+        - Arquivo: `/etc/minio/config.json`.
+        - Porta: `9000`.
+        - Variáveis: `MINIO_ROOT_USER=admin`, `MINIO_ROOT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM, 5 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. MinIO.
+      - **Security Settings**:
+        - Segredo: `secret/minio_root_password` no Vault.
+        - Firewall: `ufw allow 9000/tcp`.
+        - Permissões: `chown minio:minio /etc/minio -R; chmod 600 /etc/minio/config.json`.
+      - **Monitoring Rules**:
+        - Métrica: `minio_storage_used_bytes`.
+        - Alerta: `alert: MinIOFull expr: minio_storage_used_bytes > 4.5e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `minio_storage_used_bytes / minio_storage_total_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/minio_data`).
+        - Logrotate: `/var/log/minio.log` (diário, 7 dias retention).
+        - Atualização: `minio update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter MinIO para versão anterior.
+        - Condição: Falha no acesso aos objetos.
+        - Fallback: MinIO v2024-04-01.
+- **Load Balancer**: Flexible (/status)
 - **Integration**:
-  - Ansible/ArgoCD deploy to all subnets
-  - Bots notify via Prometheus alerts (TCP 9090)
+  - Ansible manages all VMs (TCP 22).
+  - ArgoCD/Jenkins deploy to Frontend/Backend/Solana.
+  - Vault provides secrets (TCP 8200).
 
-## 7. Helius Failover (1 account: EU-FAIL-01)
+## 7. Helius Failover (1 account: EU-HELIUS-01)
 
 - **Subnet**: 10.0.7.0/24 (public)
 - **VMs**:
   - **A1.Flex**:
-    - **Envoy (1.31.0)**:
-      - **Description**: Proxy para failover Helius (~15,000 req/s, port 8899).
-      - **Context**: Roteia requisições Solana em falhas (via headers). Logs ao Loki.
-      - **Example**: Redireciona chamada /rpc ao Helius se Solana Validator falhar.
+    - **Helius RPC Proxy (Node.js 20.0.0)**:
+      - **Description**: Proxy para Helius RPC (~10,000 req/s, port 8899), failover para Solana RPC.
+      - **Context**: Ativa se Solana RPC (EU-SOL-01) falhar. Usa Fastify para proxy, cache em Redis.
+      - **Example**: Redireciona chamada /rpc/getBalance ao Helius se Solana RPC retorna HTTP 503.
+      - **Configuration Details**:
+        - Arquivo: `/app/helius/config.js`.
+        - Porta: `8899`.
+        - Variáveis: `HELIUS_API_KEY` (Vault), `SOLANA_RPC_URL=http://solana:8899`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Redis (TCP 6379), Solana RPC (TCP 8899).
+        - Ordem: 1. Redis, 2. Solana RPC, 3. Helius RPC Proxy.
+      - **Security Settings**:
+        - Segredo: `secret/helius_api_key` no Vault.
+        - Firewall: `ufw allow 8899/tcp`.
+        - Permissões: `chown app:app /app/helius -R; chmod 600 /app/helius/config.js`.
+      - **Monitoring Rules**:
+        - Métrica: `helius_rpc_requests_total`.
+        - Alerta: `alert: HeliusHighUsage expr: rate(helius_rpc_requests_total[5m]) > 10000 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(helius_rpc_requests_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/helius_config`).
+        - Logrotate: `/var/log/helius.log` (diário, 7 dias retention).
+        - Auto-scaling: Adicionar A1.Flex se CPU >70% por 5min.
+        - Atualização: `npm update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `npm install node@18.0.0`.
+        - Condição: Falha nas chamadas RPC.
+        - Fallback: Node.js v18.0.0.
     - **Promtail**:
-      - **Description**: Coleta logs do Envoy, envia ao Loki (TCP 3100).
-      - **Context**: Integra com Fluentd e Wazuh.
-      - **Example**: Log de failover bem-sucedido é enviado ao Loki.
+      - **Description**: Coleta logs do Helius RPC Proxy, envia ao Loki (TCP 3100).
+      - **Context**: Integra com Fluentd para agregação.
+      - **Example**: Log de failover para Helius é enviado ao Loki.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
   - **E2.1.Micro 1**:
     - **Redis (7.2.0)**:
-      - **Description**: Cache para respostas de failover (~100,000 ops/s).
-      - **Context**: Usado por Envoy para reduzir latência.
-      - **Example**: Cacheia resposta de /rpc do Helius, retorna em ~1ms.
+      - **Description**: Cache para respostas Helius RPC (~100,000 ops/s, TTL 30min).
+      - **Context**: Reduz latência de chamadas RPC durante failover.
+      - **Example**: Cacheia /rpc/getBalance do Helius, evita chamadas repetidas.
+      - **Configuration Details**:
+        - Arquivo: `/etc/redis/redis.conf`.
+        - Porta: `6379`.
+        - Variáveis: `maxmemory 512mb`, `allkeys-lru`.
+        - Limite: 512 MB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Redis.
+      - **Security Settings**:
+        - Segredo: `secret/redis_password` no Vault.
+        - Firewall: `ufw allow 6379/tcp`.
+        - Permissões: `chown redis:redis /etc/redis -R; chmod 600 /etc/redis/redis.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `redis_memory_used_bytes`.
+        - Alerta: `alert: RedisHighMemory expr: redis_memory_used_bytes > 500e6 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `redis_memory_used_bytes / redis_memory_max_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/redis_dump.rdb`).
+        - Logrotate: `/var/log/redis/redis.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade redis` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install redis=7.1.0`.
+        - Condição: Falha no cache (conexões recusadas).
+        - Fallback: Redis v7.1.0.
   - **E2.1.Micro 2**:
-    - **Telegraf (1.32.0)**:
-      - **Description**: Coleta métricas de Envoy (500 mensagens/h/canal).
-      - **Context**: Envia métricas ao Prometheus, usado por bots sociais.
-      - **Example**: Métrica envoy_request_count é enviada ao Prometheus.
-- **Load Balancer**: Network (/failover/health, TCP 8899), Flexible (/failover)
+    - **MinIO**:
+      - **Description**: Armazena logs e configs do Helius RPC Proxy (port 9000, 5 GB).
+      - **Context**: Gerenciado por Ansible, acessado pelo Helius Proxy.
+      - **Example**: Backup de logs em /backups/helius_logs.
+      - **Configuration Details**:
+        - Arquivo: `/etc/minio/config.json`.
+        - Porta: `9000`.
+        - Variáveis: `MINIO_ROOT_USER=admin`, `MINIO_ROOT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM, 5 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. MinIO.
+      - **Security Settings**:
+        - Segredo: `secret/minio_root_password` no Vault.
+        - Firewall: `ufw allow 9000/tcp`.
+        - Permissões: `chown minio:minio /etc/minio -R; chmod 600 /etc/minio/config.json`.
+      - **Monitoring Rules**:
+        - Métrica: `minio_storage_used_bytes`.
+        - Alerta: `alert: MinIOFull expr: minio_storage_used_bytes > 4.5e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `minio_storage_used_bytes / minio_storage_total_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/minio_data`).
+        - Logrotate: `/var/log/minio.log` (diário, 7 dias retention).
+        - Atualização: `minio update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter MinIO para versão anterior.
+        - Condição: Falha no acesso aos objetos.
+        - Fallback: MinIO v2024-04-01.
+- **Load Balancer**: Flexible (/health)
 - **Integration**:
-  - Receives requests from Frontend/Backend (TCP 8899)
+  - Helius Proxy redirects to Solana RPC (TCP 8899) or Helius API.
+  - Logs sent to Fluentd (EU-LOG-01, TCP 24224).
 
 ## 8. Logs (1 account: EU-LOG-01)
 
-- **Subnet**: 10.0.8.0/24 (public)
+- **Subnet**: 10.0.8.0/24 (private)
 - **VMs**:
   - **A1.Flex**:
-    - **Loki (3.1.0)**:
-      - **Description**: Armazena logs (~1M logs/dia, 400 GB File Storage, port 3100).
-      - **Context**: Recebe logs de Promtail e Fluentd. Visualizado no Grafana, analisado por Wazuh.
-      - **Example**: Exibe logs de erros 500 de /api/v1/buy no dashboard Grafana.
+    - **Loki (2.9.0)**:
+      - **Description**: Armazena logs (~100,000 logs/s, port 3100).
+      - **Context**: Recebe logs de Promtail (Frontend, Backend, Solana, etc.). Integra com Grafana.
+      - **Example**: Log de erro 500 em /api/v1/buy é visualizado no Grafana.
+      - **Configuration Details**:
+        - Arquivo: `/etc/loki/config.yml`.
+        - Porta: `3100`.
+        - Variáveis: `LOKI_STORAGE=filesystem`, `RETENTION=30d`.
+        - Limite: 2 GB RAM, 20 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Loki.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 3100/tcp`.
+        - Permissões: `chown loki:loki /etc/loki -R; chmod 644 /etc/loki/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `loki_logs_stored_total`.
+        - Alerta: `alert: LokiStorageFull expr: loki_storage_used_bytes > 18e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(loki_logs_stored_total)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/loki_data`).
+        - Logrotate: `/var/log/loki.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade loki` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install loki=2.8.0`.
+        - Condição: Falha no armazenamento de logs.
+        - Fallback: Loki v2.8.0.
+    - **Fluentd (1.17.0)**:
+      - **Description**: Agrega logs de Promtail (~100,000 logs/s, port 24224).
+      - **Context**: Consolida logs antes de enviar ao Loki. Integra com Wazuh para análise.
+      - **Example**: Agrega logs de Fastify e Solana, envia ao Loki.
+      - **Configuration Details**:
+        - Arquivo: `/etc/fluentd/fluent.conf`.
+        - Porta: `24224`.
+        - Variáveis: `FLUENTD_LOKI_URL=http://loki:3100`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Fluentd.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 24224/tcp`.
+        - Permissões: `chown fluentd:fluentd /etc/fluentd -R; chmod 644 /etc/fluentd/fluent.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `fluentd_logs_processed_total`.
+        - Alerta: `alert: FluentdFailure expr: rate(fluentd_logs_processed_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(fluentd_logs_processed_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/fluentd_config`).
+        - Logrotate: `/var/log/fluentd.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade fluentd` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install fluentd=1.16.0`.
+        - Condição: Falha no processamento de logs.
+        - Fallback: Fluentd v1.16.0.
+    - **Promtail**:
+      - **Description**: Coleta logs de Loki e Fluentd, envia ao Loki (TCP 3100).
+      - **Context**: Garante logs internos do sistema de logs.
+      - **Example**: Log de erro no Fluentd é enviado ao Loki.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
   - **E2.1.Micro 1**:
     - **MinIO**:
-      - **Description**: Armazena backups de logs críticos (port 9000, 50 GB).
-      - **Context**: Gerenciado por Ansible, acessado por Fluentd.
-      - **Example**: Backup de logs de segurança em /logs/security.log.gz.
+      - **Description**: Armazena backups de logs Loki (port 9000, 10 GB).
+      - **Context**: Gerenciado por Ansible, acessado por Loki.
+      - **Example**: Backup diário de logs em /backups/loki_data.
+      - **Configuration Details**:
+        - Arquivo: `/etc/minio/config.json`.
+        - Porta: `9000`.
+        - Variáveis: `MINIO_ROOT_USER=admin`, `MINIO_ROOT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM, 10 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. MinIO.
+      - **Security Settings**:
+        - Segredo: `secret/minio_root_password` no Vault.
+        - Firewall: `ufw allow 9000/tcp`.
+        - Permissões: `chown minio:minio /etc/minio -R; chmod 600 /etc/minio/config.json`.
+      - **Monitoring Rules**:
+        - Métrica: `minio_storage_used_bytes`.
+        - Alerta: `alert: MinIOFull expr: minio_storage_used_bytes > 9e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `minio_storage_used_bytes / minio_storage_total_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/minio_data`).
+        - Logrotate: `/var/log/minio.log` (diário, 7 dias retention).
+        - Atualização: `minio update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter MinIO para versão anterior.
+        - Condição: Falha no acesso aos objetos.
+        - Fallback: MinIO v2024-04-01.
   - **E2.1.Micro 2**:
-    - **Fluentd**:
-      - **Description**: Agrega/processa logs, envia ao Loki/RabbitMQ (port 24224).
-      - **Context**: Coleta logs de todas subnets, integra com OpenTelemetry para traces.
-      - **Example**: Processa log de transação Solana, envia ao Loki.
-- **Load Balancer**: Flexible (/logs)
+    - **Redis (7.2.0)**:
+      - **Description**: Cache para consultas de logs (~100,000 ops/s, TTL 1h).
+      - **Context**: Reduz latência de queries no Loki.
+      - **Example**: Cacheia query de logs de /api/v1/buy, evita consultas repetidas.
+      - **Configuration Details**:
+        - Arquivo: `/etc/redis/redis.conf`.
+        - Porta: `6379`.
+        - Variáveis: `maxmemory 512mb`, `allkeys-lru`.
+        - Limite: 512 MB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Redis.
+      - **Security Settings**:
+        - Segredo: `secret/redis_password` no Vault.
+        - Firewall: `ufw allow 6379/tcp`.
+        - Permissões: `chown redis:redis /etc/redis -R; chmod 600 /etc/redis/redis.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `redis_memory_used_bytes`.
+        - Alerta: `alert: RedisHighMemory expr: redis_memory_used_bytes > 500e6 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `redis_memory_used_bytes / redis_memory_max_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/redis_dump.rdb`).
+        - Logrotate: `/var/log/redis/redis.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade redis` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install redis=7.1.0`.
+        - Condição: Falha no cache (conexões recusadas).
+        - Fallback: Redis v7.1.0.
+- **Load Balancer**: Flexible (/status)
 - **Integration**:
-  - Receives logs from all subnets (TCP 3100, 24224)
-  - Accessed by Grafana (EU-MON-01, /logs)
+  - Loki receives logs from Promtail (TCP 3100).
+  - Fluentd aggregates logs, sends to Loki (TCP 3100).
+  - Grafana queries Loki (EU-MON-01, TCP 3000).
 
 ## 9. Network Management (1 account: EU-NET-01)
 
 - **Subnet**: 10.0.9.0/24 (private)
 - **VMs**:
   - **A1.Flex**:
-    - **Zabbix**:
-      - **Description**: Monitora saúde da rede (port 10050).
-      - **Context**: Coleta métricas de VMs, Load Balancers. Integra com Prometheus/Grafana.
-      - **Example**: Alerta sobre alta latência em 10.0.1.0/24, notifica via Telegram.
-    - **UFW**:
-      - **Description**: Firewall local, bloqueia tráfego não autorizado.
-      - **Context**: Configurado por Ansible, usado por Crowdsec para banir IPs.
-      - **Example**: Bloqueia IP após ataque detectado por Crowdsec.
-    - **Netdata**:
-      - **Description**: Monitoramento em tempo real (port 19999).
-      - **Context**: Coleta métricas de sistema (CPU, RAM). Integra com Prometheus.
-      - **Example**: Exibe uso de CPU do A1.Flex em EU-NET-01.
+    - **OpenVPN (2.6.0)**:
+      - **Description**: VPN para acesso seguro à VCN (~100 conexões, port 1194).
+      - **Context**: Usado por admins para gerenciar VMs. Integra com Vault para certificados.
+      - **Example**: Admin conecta via OpenVPN para acessar Ansible (EU-MGMT-01).
+      - **Configuration Details**:
+        - Arquivo: `/etc/openvpn/server.conf`.
+        - Porta: `1194` (UDP).
+        - Variáveis: `CA_CERT` (Vault), `SERVER=10.8.0.0/24`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Vault (TCP 8200).
+        - Ordem: 1. Vault, 2. OpenVPN.
+      - **Security Settings**:
+        - Segredo: `secret/openvpn_ca_cert` no Vault.
+        - Firewall: `ufw allow 1194/udp`.
+        - Permissões: `chown openvpn:openvpn /etc/openvpn -R; chmod 600 /etc/openvpn/server.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `openvpn_active_connections`.
+        - Alerta: `alert: OpenVPNOverload expr: openvpn_active_connections > 90 for: 5m labels: { severity: "warning" }`.
+        - Dashboard: Grafana query `sum(openvpn_active_connections)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/openvpn_config`).
+        - Logrotate: `/var/log/openvpn.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade openvpn` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install openvpn=2.5.0`.
+        - Condição: Falha nas conexões VPN.
+        - Fallback: OpenVPN v2.5.0.
+    - **HAProxy (2.8.0)**:
+      - **Description**: Balanceamento interno (~50,000 req/s, port 80).
+      - **Context**: Gerencia tráfego interno (Frontend → Backend, Backend → Solana). Monitorado por Prometheus.
+      - **Example**: Roteia requisições /api/v1/buy para Backend (EU-BE-01).
+      - **Configuration Details**:
+        - Arquivo: `/etc/haproxy/haproxy.cfg`.
+        - Porta: `80`, `443`.
+        - Variáveis: `MAXCONN=50000`.
+        - Limite: 1 GB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. HAProxy.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 80/tcp`, `ufw allow 443/tcp`.
+        - Permissões: `chown haproxy:haproxy /etc/haproxy -R; chmod 644 /etc/haproxy/haproxy.cfg`.
+      - **Monitoring Rules**:
+        - Métrica: `haproxy_backend_response_time_ms`.
+        - Alerta: `alert: HAProxyHighLatency expr: haproxy_backend_response_time_ms > 50 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `avg(haproxy_backend_response_time_ms) by (backend)`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/haproxy_config`).
+        - Logrotate: `/var/log/haproxy.log` (diário, 7 dias retention).
+        - Auto-scaling: Adicionar A1.Flex se conexões >45000.
+        - Atualização: `apt upgrade haproxy` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install haproxy=2.7.0`.
+        - Condição: Falha no balanceamento (HTTP 503).
+        - Fallback: HAProxy v2.7.0.
     - **Promtail**:
-      - **Description**: Coleta logs de Zabbix, UFW, Netdata, Bind9.
-      - **Context**: Envia ao Loki (TCP 3100), integra com Fluentd.
-      - **Example**: Log de falha DNS no Bind9 é enviado ao Loki.
+      - **Description**: Coleta logs de OpenVPN e HAProxy, envia ao Loki (TCP 3100).
+      - **Context**: Integra com Fluentd para agregação.
+      - **Example**: Log de conexão VPN falhada é enviado ao Loki.
+      - **Configuration Details**:
+        - Arquivo: `/etc/promtail/config.yml`.
+        - Porta: `9080` (metrics).
+        - Variáveis: `LOKI_URL=http://loki:3100`.
+        - Limite: 100 MB RAM.
+      - **Dependencies**:
+        - Serviços: Loki (TCP 3100).
+        - Ordem: 1. Loki, 2. Promtail.
+      - **Security Settings**:
+        - Segredo: Nenhum.
+        - Firewall: `ufw allow 9080/tcp`.
+        - Permissões: `chown promtail:promtail /etc/promtail -R; chmod 644 /etc/promtail/config.yml`.
+      - **Monitoring Rules**:
+        - Métrica: `promtail_logs_sent_total`.
+        - Alerta: `alert: PromtailFailure expr: rate(promtail_logs_sent_total[5m]) == 0 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `sum(rate(promtail_logs_sent_total[5m]))`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/promtail_config`).
+        - Logrotate: `/var/log/promtail.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade promtail` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install promtail=2.9.0`.
+        - Condição: Falha no envio de logs.
+        - Fallback: Promtail v2.9.0.
   - **E2.1.Micro 1**:
-    - **Bind9 (9.18.0)**:
-      - **Description**: Servidor DNS local (<10ms, cache TTL 300s).
-      - **Context**: Resolve nomes internos (ex.: adb_host). Cacheado por Redis.
-      - **Example**: Resolve adb_host para Oracle ADB, reduz latência de DNS.
-    - **Redis (7.2.0)**:
-      - **Description**: Cache para métricas de rede (~100,000 ops/s).
-      - **Context**: Usado por Bind9 e Netdata.
-      - **Example**: Cacheia resolução DNS de adb_host, retorna em ~1ms.
-  - **E2.1.Micro 2**:
     - **MinIO**:
-      - **Description**: Armazena relatórios Zabbix (port 9000, 5 GB).
-      - **Context**: Acessado por Zabbix, gerenciado por Ansible.
-      - **Example**: Armazena relatório de rede em /zabbix/network.pdf.
-- **Load Balancer**: Flexible (/network)
+      - **Description**: Armazena configs de OpenVPN e HAProxy (port 9000, 5 GB).
+      - **Context**: Gerenciado por Ansible, acessado por OpenVPN.
+      - **Example**: Backup de certificados VPN em /backups/openvpn_certs.
+      - **Configuration Details**:
+        - Arquivo: `/etc/minio/config.json`.
+        - Porta: `9000`.
+        - Variáveis: `MINIO_ROOT_USER=admin`, `MINIO_ROOT_PASSWORD` (Vault).
+        - Limite: 1 GB RAM, 5 GB storage.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. MinIO.
+      - **Security Settings**:
+        - Segredo: `secret/minio_root_password` no Vault.
+        - Firewall: `ufw allow 9000/tcp`.
+        - Permissões: `chown minio:minio /etc/minio -R; chmod 600 /etc/minio/config.json`.
+      - **Monitoring Rules**:
+        - Métrica: `minio_storage_used_bytes`.
+        - Alerta: `alert: MinIOFull expr: minio_storage_used_bytes > 4.5e9 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `minio_storage_used_bytes / minio_storage_total_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário às 01:00 UTC (`/backups/minio_data`).
+        - Logrotate: `/var/log/minio.log` (diário, 7 dias retention).
+        - Atualização: `minio update` mensal.
+      - **Rollback Strategy**:
+        - Rollback: Reverter MinIO para versão anterior.
+        - Condição: Falha no acesso aos objetos.
+        - Fallback: MinIO v2024-04-01.
+  - **E2.1.Micro 2**:
+    - **Redis (7.2.0)**:
+      - **Description**: Cache para configs de rede (~100,000 ops/s, TTL 1h).
+      - **Context**: Reduz latência de consultas HAProxy.
+      - **Example**: Cacheia regras de roteamento HAProxy, evita leituras repetidas.
+      - **Configuration Details**:
+        - Arquivo: `/etc/redis/redis.conf`.
+        - Porta: `6379`.
+        - Variáveis: `maxmemory 512mb`, `allkeys-lru`.
+        - Limite: 512 MB RAM.
+      - **Dependencies**:
+        - Serviços: Nenhum.
+        - Ordem: 1. Redis.
+      - **Security Settings**:
+        - Segredo: `secret/redis_password` no Vault.
+        - Firewall: `ufw allow 6379/tcp`.
+        - Permissões: `chown redis:redis /etc/redis -R; chmod 600 /etc/redis/redis.conf`.
+      - **Monitoring Rules**:
+        - Métrica: `redis_memory_used_bytes`.
+        - Alerta: `alert: RedisHighMemory expr: redis_memory_used_bytes > 500e6 for: 5m labels: { severity: "critical" }`.
+        - Dashboard: Grafana query `redis_memory_used_bytes / redis_memory_max_bytes`.
+      - **Maintenance Tasks**:
+        - Backup: MinIO diário (`/backups/redis_dump.rdb`).
+        - Logrotate: `/var/log/redis/redis.log` (diário, 7 dias retention).
+        - Atualização: `apt upgrade redis` mensal.
+      - **Rollback Strategy**:
+        - Rollback: `apt install redis=7.1.0`.
+        - Condição: Falha no cache (conexões recusadas).
+        - Fallback: Redis v7.1.0.
+- **Load Balancer**: Flexible (/status)
 - **Integration**:
-  - Monitored by EU-MON-01 (TCP 10050)
+  - OpenVPN provides access to EU-MGMT-01 (TCP 22).
+  - HAProxy routes internal traffic (TCP 80, 443).
+  - Logs sent to Fluentd (EU-LOG-01, TCP 24224).
